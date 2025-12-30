@@ -7,7 +7,10 @@
     {
       "src": "serverless/backend/index.py",
       "use": "@vercel/python",
-      "config": { "maxDuration": 60 }
+      "config": {
+        "maxDuration": 60,
+        "runtime": "python3.12"
+      }
     }
   ],
   "routes": [
