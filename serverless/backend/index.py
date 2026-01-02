@@ -463,7 +463,7 @@ def query_similar(
 
     results = index.query(
         vector=embedding,
-        top_k=top_k or config.TOP_K,
+        top_k=top_k or config.RETRIEVAL_TOP_K,
         include_metadata=True,
         filter=query_filter,
     )
@@ -776,6 +776,98 @@ async def remove_document(document_id: str) -> dict[str, bool]:
         return {"success": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/upload-from-url")
+async def upload_from_url(request: dict[str, Any]) -> dict[str, Any]:
+    """Download a file from a URL and process it.
+
+    This is used for large files uploaded to blob storage.
+
+    Args:
+        request: Dict with 'url' and 'filename' keys
+    """
+    try:
+        url = request.get("url")
+        filename = request.get("filename")
+
+        if not url or not filename:
+            raise HTTPException(status_code=400, detail="Missing url or filename")
+
+        # Check environment variables
+        if not config.OPENAI_API_KEY:
+            raise HTTPException(
+                status_code=500,
+                detail="OPENAI_API_KEY not configured. Please set environment variables in Vercel dashboard."
+            )
+        if not config.PINECONE_API_KEY:
+            raise HTTPException(
+                status_code=500,
+                detail="PINECONE_API_KEY not configured. Please set environment variables in Vercel dashboard."
+            )
+
+        # Download file from URL
+        import httpx
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            content = response.content
+
+        # Create a fake UploadFile object for compatibility
+        class FakeUploadFile:
+            def __init__(self, content: bytes, filename: str):
+                self.file = io.BytesIO(content)
+                self.filename = filename
+                self.content_type = "application/octet-stream"
+
+        fake_file = FakeUploadFile(content, filename)
+
+        # Extract structured chunks with metadata
+        structured_chunks = extract_structured_chunks(fake_file)
+        if not structured_chunks:
+            raise HTTPException(status_code=400, detail="No content to process")
+
+        # Extract text for embeddings
+        chunk_texts = [chunk["text"] for chunk in structured_chunks]
+        embeddings = await generate_embeddings_batch(chunk_texts)
+
+        document_id = generate_document_id()
+        uploaded_at = datetime.now(timezone.utc).isoformat()
+
+        # Build final chunks with embeddings and metadata
+        chunks: list[dict[str, Any]] = []
+        for i, (structured_chunk, embedding) in enumerate(
+            zip(structured_chunks, embeddings, strict=False)
+        ):
+            chunks.append({
+                "id": f"{document_id}_chunk_{i}",
+                "embedding": embedding,
+                "metadata": {
+                    "text": structured_chunk["text"],
+                    "document_id": document_id,
+                    "filename": filename,
+                    "chunk_index": i,
+                    "total_chunks": len(structured_chunks),
+                    "uploaded_at": uploaded_at,
+                    "is_first_chunk": i == 0,
+                },
+            })
+
+        store_chunks(chunks)
+
+        return {
+            "success": True,
+            "document_id": document_id,
+            "filename": filename,
+            "chunks": len(structured_chunks),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = f"{str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+        raise HTTPException(status_code=500, detail=error_detail) from e
 
 
 @app.get("/health")

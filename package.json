@@ -12,6 +12,7 @@
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx"
   },
   "dependencies": {
+    "@vercel/blob": "^2.0.0",
     "js-tiktoken": "^1.0.21",
     "lucide-react": "^0.400.0",
     "next": "^16.0.10",

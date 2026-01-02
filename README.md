@@ -22,6 +22,8 @@ Your personal AI assistant for MBA coursework. Upload your course materials and 
 
 ### Step 1: Get API Keys (5 minutes)
 
+The copilot requires keys from both OpenAI and Pinecone.
+
 **OpenAI Configuration:**
 
 You have two options for accessing OpenAI:
@@ -56,7 +58,7 @@ If your instructor has provided access to Columbia's OpenAI endpoint:
 
 ### Step 2: Fork the Repository
 
-1. Go to the [MBA Copilot GitHub repository](https://github.com/YOUR_INSTRUCTOR_USERNAME/mba-copilot)
+1. Go to the [MBA Copilot GitHub repository](https://github.com/malekbensliman/mba-copilot)
 2. Click the **"Fork"** button in the top right
 3. This creates your own copy of the project
 
@@ -65,13 +67,15 @@ If your instructor has provided access to Columbia's OpenAI endpoint:
 In the Pinecone console:
 
 1. Click **"Create Index"**
-2. Configure the index:
+2. Select **Custom Settings**
+3. Configure the index:
    - **Name:** `mba-copilot`
+   - **Model:** `text-embedding-3-large`
    - **Dimensions:** `1024`
    - **Metric:** `cosine`
    - **Cloud Provider:** AWS (or your preferred region)
    - **Region:** `us-east-1` (or closest to you)
-3. Click **"Create Index"**
+4. Click **"Create Index"**
 
 **Important:** The dimensions **must be 1024** to match the OpenAI `text-embedding-3-large` model used by this app.
 
@@ -114,7 +118,7 @@ Pick a memorable password for accessing your copilot. You'll share this with any
 1. Go to <a href="https://vercel.com" target="_blank">vercel.com</a> and sign in
 2. Click **"Add New"** → **"Project"**
 3. Import your **forked** GitHub repository
-4. Configure the project:
+4. Configure the project (click "Build and Output Settings"):
 
    | Setting | Value |
    |---------|-------|
@@ -124,7 +128,7 @@ Pick a memorable password for accessing your copilot. You'll share this with any
    | **Output Directory** | `.next` |
    | **Install Command** | `npm install` |
 
-5. **Add Environment Variables** (click "Environment Variables" section):
+5. **Add Environment Variables** (click "Environment Variables" section and "Add More"):
 
    | Variable | Value | Where to Get It |
    |----------|-------|-----------------|
@@ -149,6 +153,31 @@ Vercel will:
 - Provide you with a live URL
 
 **Done!** Your app will be live at `https://your-project.vercel.app`
+
+### Step 6.5: Enable Vercel Blob Storage (For Large Files)
+
+**Important:** This step is **required** if you plan to upload files larger than 4MB (like large PDFs or PowerPoint presentations).
+
+Vercel Blob storage is used as temporary storage for large files during upload. The files are automatically deleted after processing to minimize costs.
+
+1. Go to your Vercel project dashboard
+2. Click **"Storage"** tab in the top navigation
+3. Click **"Create Database"** → Select **"Blob"**
+4. Choose a name (e.g., `mba-copilot-files`)
+5. Click **"Create"**
+6. Click **"Connect to Project"**
+7. Select your `mba-copilot` project
+8. Click **"Connect"**
+
+Vercel will automatically add the `BLOB_READ_WRITE_TOKEN` environment variable to your project.
+
+**Storage Costs:**
+
+- **Free tier:** 500MB storage
+- **Pricing:** $0.15/GB/month after free tier
+- **Your cost:** ~$0 (files are deleted immediately after processing)
+
+**Skip this step if:** You only need to upload small files (< 4MB). The app will still work, but large file uploads will fail.
 
 ### Step 7: Sign In
 
@@ -586,11 +615,13 @@ make setup
 - Check Pinecone console to verify index exists
 - Ensure index has dimension 1024
 
-**"Upload failed"**
+**"Upload failed" or "403 Forbidden"**
 
-- Check file size (max ~10MB)
-- Try a different file format
-- Check Vercel function logs
+- **For small files (< 4MB):** Check Vercel function logs for details
+- **For large files (> 4MB):** Make sure you've set up Vercel Blob storage (see Step 6.5)
+- Verify `BLOB_READ_WRITE_TOKEN` is set in your environment variables
+- Try a different file format (PDF, DOCX, PPTX, TXT, MD, CSV supported)
+- Check file isn't corrupted by opening it locally first
 
 **"API errors"**
 
@@ -632,8 +663,11 @@ make setup
 | **Pinecone** | 2GB storage, 1M reads/month | $0 |
 | **OpenAI** | Pay-as-you-go | $1-5/semester |
 | **Vercel** | Hobby plan free | $0 |
+| **Vercel Blob** | 500MB storage | $0* |
 
 **Total estimated cost:** $1-5/semester (OpenAI usage only)
+
+**\*Vercel Blob Note:** Files are automatically deleted after processing, so you'll stay well within the free 500MB tier. Only the text embeddings are stored permanently in Pinecone.
 
 **No external auth services needed!** Authentication uses simple password check built into the app.
 

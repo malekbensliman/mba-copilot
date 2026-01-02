@@ -198,6 +198,9 @@ export default function Home() {
     const isFolder = firstPath.includes('/');
     const folderName = isFolder ? firstPath.split('/')[0] : null;
 
+    // Size threshold for using blob upload (4MB)
+    const BLOB_UPLOAD_THRESHOLD = 4 * 1024 * 1024;
+
     for (const file of validFiles) {
       try {
         const fileWithPath = file as File & { webkitRelativePath?: string; path?: string };
@@ -227,10 +230,17 @@ export default function Home() {
           finalFilename = file.name;
         }
 
-        console.log('Uploading file:', file.name, 'with path:', finalFilename);
+        console.log('Uploading file:', file.name, 'with path:', finalFilename, 'size:', file.size);
         formData.append('filename', finalFilename);
 
-        const res = await fetch('/backend/upload', {
+        // Choose upload endpoint based on file size
+        const uploadEndpoint = file.size > BLOB_UPLOAD_THRESHOLD
+          ? '/api/upload-blob'
+          : '/backend/upload';
+
+        console.log(`Using ${uploadEndpoint} for ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+
+        const res = await fetch(uploadEndpoint, {
           method: 'POST',
           body: formData,
         });
