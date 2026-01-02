@@ -1,12 +1,19 @@
 {
-  "functions": {
-    "serverless/backend/index.py": {
-      "maxDuration": 300,
-      "memory": 3008
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/next"
     },
-    "app/backend/[...path]/route.ts": {
-      "maxDuration": 300,
-      "memory": 3008
+    {
+      "src": "serverless/backend/index.py",
+      "use": "@vercel/python",
+      "config": { "maxDuration": 60 }
     }
-  }
+  ],
+  "routes": [
+    {
+      "src": "/backend/(.*)",
+      "dest": "/serverless/backend/index.py"
+    }
+  ]
 }
