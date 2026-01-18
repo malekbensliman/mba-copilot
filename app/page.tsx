@@ -213,7 +213,7 @@ export default function Home() {
         const displayName = folderName
           ? `${folderName} (${successCount + failCount + 1}/${validFiles.length})`
           : file.name;
-        setUploadStatus(`Uploading ${displayName}...`);
+        setUploadStatus(`Uploading ${displayName}... Do not refresh the page.`);
 
         // Prepare form data
         const formData = new FormData();
@@ -551,7 +551,7 @@ export default function Home() {
               <p className="text-sm text-slate-600">
                 {isDragActive ? 'Drop files here' : 'Drag & drop files'}
               </p>
-              <p className="text-xs text-slate-400 mt-1">PDF, DOCX, TXT, MD, CSV</p>
+              <p className="text-xs text-slate-400 mt-1">PDF, DOCX, PPTX, TXT, MD, CSV</p>
             </div>
 
             {/* Folder Upload Button */}

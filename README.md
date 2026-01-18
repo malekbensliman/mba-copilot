@@ -168,6 +168,10 @@ Vercel Blob storage is used as temporary storage for large files during upload. 
 6. Click **"Connect to Project"**
 7. Select your `mba-copilot` project
 8. Click **"Connect"**
+9. Return to your Vercel project
+10. Click **"Settings"** tab in the top navigation
+11. Click **"Deployment Protection"** on the left side
+12. Disable **"Vercel Authentication"**
 
 Vercel will automatically add the `BLOB_READ_WRITE_TOKEN` environment variable to your project.
 
