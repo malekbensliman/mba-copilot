@@ -198,10 +198,8 @@ export default function Home() {
     const isFolder = firstPath.includes('/');
     const folderName = isFolder ? firstPath.split('/')[0] : null;
 
-    // Size threshold for using blob upload (4MB)
+    // Size threshold for using server-side upload proxy (4MB)
     const BLOB_UPLOAD_THRESHOLD = 4 * 1024 * 1024;
-    const blobUploadedFiles: string[] = []; // Track files uploaded via blob
-
     for (const file of validFiles) {
       try {
         const fileWithPath = file as File & { webkitRelativePath?: string; path?: string };
@@ -237,31 +235,24 @@ export default function Home() {
 
         // Choose upload method based on file size
         if (file.size > BLOB_UPLOAD_THRESHOLD) {
-          // Large files: Use client-side blob upload
-          console.log(`Using blob upload for ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+          // Large files: Use server-side upload proxy (avoids CORS issues with client-side blob)
+          console.log(`Using server-side upload for ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
 
-          const { upload } = await import('@vercel/blob/client');
+          const largeFormData = new FormData();
+          largeFormData.append('file', file);
+          largeFormData.append('filename', finalFilename);
 
-          const blob = await upload(finalFilename, file, {
-            access: 'public',
-            handleUploadUrl: '/api/upload-blob',
-            clientPayload: JSON.stringify({ originalFilename: finalFilename }),
+          const res = await fetch('/api/upload-large', {
+            method: 'POST',
+            body: largeFormData,
           });
 
-          console.log('Blob uploaded to:', blob.url);
-          console.log('Background processing started. File will appear in document list shortly.');
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || errData.detail || 'Upload failed');
+          }
 
-          // Track this file for polling
-          blobUploadedFiles.push(finalFilename);
-
-          // The backend processing happens asynchronously in onUploadCompleted
-          // Return a temporary response and let the user know to wait
-          data = {
-            success: true,
-            document_id: `temp_${Date.now()}`, // Temporary ID, will refresh
-            filename: finalFilename,
-            chunks: 0,
-          };
+          data = await res.json();
         } else {
           // Small files: Direct upload
           console.log(`Using direct upload for ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
@@ -293,41 +284,7 @@ export default function Home() {
       }
     }
 
-    // If we uploaded files via blob, poll until they appear in the document tree
-    if (blobUploadedFiles.length > 0) {
-      console.log('Waiting for blob-uploaded files to be processed...');
-      setUploadStatus('Processing large files...');
-
-      let pollAttempts = 0;
-      const maxPolls = 30; // Poll for up to 30 seconds
-
-      while (pollAttempts < maxPolls) {
-        await fetchDocuments();
-
-        // Check if all blob-uploaded files are now in the document list
-        const currentDocs = await fetch('/backend/documents').then(r => r.json());
-        const docFilenames = currentDocs.documents?.map((d: any) => d.filename) || [];
-
-        const allFilesProcessed = blobUploadedFiles.every(filename =>
-          docFilenames.includes(filename)
-        );
-
-        if (allFilesProcessed) {
-          console.log('All blob-uploaded files processed successfully');
-          break;
-        }
-
-        // Wait 1 second before next poll
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        pollAttempts++;
-      }
-
-      if (pollAttempts >= maxPolls) {
-        console.warn('Some blob-uploaded files may still be processing');
-      }
-    } else {
-      await fetchDocuments();
-    }
+    await fetchDocuments();
 
     if (failCount === 0) {
       const message = folderName
