@@ -728,80 +728,86 @@ async def chat(request: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+class _FileObj:
+    """Lightweight file-like object compatible with extract_structured_chunks."""
+
+    def __init__(self, content: bytes, filename: str) -> None:
+        self.file = io.BytesIO(content)
+        self.filename = filename
+        self.content_type = "application/octet-stream"
+
+
+def _make_file_obj(content: bytes, filename: str) -> _FileObj:
+    return _FileObj(content, filename)
+
+
+async def _process_file(file_obj: Any, display_filename: str) -> dict[str, Any]:
+    """Shared file processing: extract chunks, generate embeddings, store in Pinecone."""
+    if not config.OPENAI_API_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="OPENAI_API_KEY not configured. Please set environment variables in Vercel dashboard.",
+        )
+    if not config.PINECONE_API_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="PINECONE_API_KEY not configured. Please set environment variables in Vercel dashboard.",
+        )
+
+    structured_chunks = extract_structured_chunks(file_obj)
+    if not structured_chunks:
+        raise HTTPException(status_code=400, detail="No content to process")
+
+    # Check if document with same filename already exists and delete it
+    existing_docs = list_documents()
+    for doc in existing_docs:
+        if doc.get("filename") == display_filename:
+            print(f"Deleting existing document with filename: {display_filename}")
+            delete_document(doc["id"])
+
+    chunk_texts = [chunk["text"] for chunk in structured_chunks]
+    embeddings = await generate_embeddings_batch(chunk_texts)
+
+    document_id = generate_document_id()
+    uploaded_at = datetime.now(timezone.utc).isoformat()
+
+    chunks: list[dict[str, Any]] = []
+    for i, (structured_chunk, embedding) in enumerate(
+        zip(structured_chunks, embeddings, strict=False)
+    ):
+        chunks.append({
+            "id": f"{document_id}_chunk_{i}",
+            "embedding": embedding,
+            "metadata": {
+                "text": structured_chunk["text"],
+                "document_id": document_id,
+                "filename": display_filename,
+                "chunk_index": i,
+                "total_chunks": len(structured_chunks),
+                "uploaded_at": uploaded_at,
+                "is_first_chunk": i == 0,
+            },
+        })
+
+    store_chunks(chunks)
+
+    return {
+        "success": True,
+        "document_id": document_id,
+        "filename": display_filename,
+        "chunks": len(structured_chunks),
+    }
+
+
 @app.post("/upload")
 async def upload(
     file: Annotated[UploadFile, File()],
     filename: Annotated[str | None, Form()] = None,
 ) -> dict[str, Any]:
-    """Upload and process a document file.
-
-    Args:
-        file: The uploaded file
-        filename: Optional full path (including folder structure) for the file
-    """
+    """Upload and process a document file."""
     try:
-        # Check environment variables
-        if not config.OPENAI_API_KEY:
-            raise HTTPException(
-                status_code=500,
-                detail="OPENAI_API_KEY not configured. Please set environment variables in Vercel dashboard."
-            )
-        if not config.PINECONE_API_KEY:
-            raise HTTPException(
-                status_code=500,
-                detail="PINECONE_API_KEY not configured. Please set environment variables in Vercel dashboard."
-            )
-
-        # Use provided filename (with folder structure) or fall back to file.filename
         display_filename = filename or file.filename or "unknown"
-
-        # Extract structured chunks with metadata
-        structured_chunks = extract_structured_chunks(file)
-        if not structured_chunks:
-            raise HTTPException(status_code=400, detail="No content to process")
-
-        # Check if document with same filename already exists and delete it
-        existing_docs = list_documents()
-        for doc in existing_docs:
-            if doc.get("filename") == display_filename:
-                print(f"Deleting existing document with filename: {display_filename}")
-                delete_document(doc["id"])
-
-        # Extract text for embeddings
-        chunk_texts = [chunk["text"] for chunk in structured_chunks]
-        embeddings = await generate_embeddings_batch(chunk_texts)
-
-        document_id = generate_document_id()
-        uploaded_at = datetime.now(timezone.utc).isoformat()
-
-        # Build final chunks with embeddings and metadata
-        chunks: list[dict[str, Any]] = []
-        for i, (structured_chunk, embedding) in enumerate(
-            zip(structured_chunks, embeddings, strict=False)
-        ):
-            chunks.append({
-                "id": f"{document_id}_chunk_{i}",
-                "embedding": embedding,
-                "metadata": {
-                    "text": structured_chunk["text"],
-                    "document_id": document_id,
-                    "filename": display_filename,
-                    "chunk_index": i,
-                    "total_chunks": len(structured_chunks),
-                    "uploaded_at": uploaded_at,
-                    "is_first_chunk": i == 0,
-                },
-            })
-
-        store_chunks(chunks)
-
-        return {
-            "success": True,
-            "document_id": document_id,
-            "filename": display_filename,
-            "chunks": len(structured_chunks),
-        }
-
+        return await _process_file(file, display_filename)
     except HTTPException:
         raise
     except Exception as e:
@@ -835,9 +841,6 @@ async def upload_from_url(request: dict[str, Any]) -> dict[str, Any]:
     """Download a file from a URL and process it.
 
     This is used for large files uploaded to blob storage.
-
-    Args:
-        request: Dict with 'url' and 'filename' keys
     """
     try:
         url = request.get("url")
@@ -846,80 +849,15 @@ async def upload_from_url(request: dict[str, Any]) -> dict[str, Any]:
         if not url or not filename:
             raise HTTPException(status_code=400, detail="Missing url or filename")
 
-        # Check environment variables
-        if not config.OPENAI_API_KEY:
-            raise HTTPException(
-                status_code=500,
-                detail="OPENAI_API_KEY not configured. Please set environment variables in Vercel dashboard."
-            )
-        if not config.PINECONE_API_KEY:
-            raise HTTPException(
-                status_code=500,
-                detail="PINECONE_API_KEY not configured. Please set environment variables in Vercel dashboard."
-            )
-
-        # Download file from URL
         import httpx
+
         async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.get(url)
             response.raise_for_status()
             content = response.content
 
-        # Create a fake UploadFile object for compatibility
-        class FakeUploadFile:
-            def __init__(self, content: bytes, filename: str):
-                self.file = io.BytesIO(content)
-                self.filename = filename
-                self.content_type = "application/octet-stream"
-
-        fake_file = FakeUploadFile(content, filename)
-
-        # Extract structured chunks with metadata
-        structured_chunks = extract_structured_chunks(fake_file)
-        if not structured_chunks:
-            raise HTTPException(status_code=400, detail="No content to process")
-
-        # Check if document with same filename already exists and delete it
-        existing_docs = list_documents()
-        for doc in existing_docs:
-            if doc.get("filename") == filename:
-                print(f"Deleting existing document with filename: {filename}")
-                delete_document(doc["id"])
-
-        # Extract text for embeddings
-        chunk_texts = [chunk["text"] for chunk in structured_chunks]
-        embeddings = await generate_embeddings_batch(chunk_texts)
-
-        document_id = generate_document_id()
-        uploaded_at = datetime.now(timezone.utc).isoformat()
-
-        # Build final chunks with embeddings and metadata
-        chunks: list[dict[str, Any]] = []
-        for i, (structured_chunk, embedding) in enumerate(
-            zip(structured_chunks, embeddings, strict=False)
-        ):
-            chunks.append({
-                "id": f"{document_id}_chunk_{i}",
-                "embedding": embedding,
-                "metadata": {
-                    "text": structured_chunk["text"],
-                    "document_id": document_id,
-                    "filename": filename,
-                    "chunk_index": i,
-                    "total_chunks": len(structured_chunks),
-                    "uploaded_at": uploaded_at,
-                    "is_first_chunk": i == 0,
-                },
-            })
-
-        store_chunks(chunks)
-
-        return {
-            "success": True,
-            "document_id": document_id,
-            "filename": filename,
-            "chunks": len(structured_chunks),
-        }
+        fake_file = _make_file_obj(content, filename)
+        return await _process_file(fake_file, filename)
 
     except HTTPException:
         raise
@@ -927,6 +865,116 @@ async def upload_from_url(request: dict[str, Any]) -> dict[str, Any]:
         import traceback
         error_detail = f"{str(e)}\n\nTraceback:\n{traceback.format_exc()}"
         raise HTTPException(status_code=500, detail=error_detail) from e
+
+
+# =============================================================================
+# Chunked Upload (for files > 4.5 MB on Vercel)
+# =============================================================================
+
+# In-memory store for upload sessions.  Persists across warm invocations of the
+# same serverless instance.  Chunks are written to /tmp for lower memory
+# pressure; the dict only tracks metadata.
+import json as _json
+import shutil as _shutil
+import tempfile as _tempfile
+from pathlib import Path as _Path
+
+_UPLOAD_TMP = _Path(_tempfile.gettempdir()) / "mba_uploads"
+_UPLOAD_SESSIONS: dict[str, dict[str, Any]] = {}
+
+# Clean up stale uploads older than this (seconds)
+_STALE_UPLOAD_SECONDS = 600  # 10 minutes
+
+
+def _cleanup_stale_uploads() -> None:
+    """Remove upload sessions older than _STALE_UPLOAD_SECONDS."""
+    now = time.time()
+    stale = [
+        uid
+        for uid, meta in _UPLOAD_SESSIONS.items()
+        if now - meta.get("created_at", 0) > _STALE_UPLOAD_SECONDS
+    ]
+    for uid in stale:
+        _UPLOAD_SESSIONS.pop(uid, None)
+        _shutil.rmtree(_UPLOAD_TMP / uid, ignore_errors=True)
+
+
+@app.post("/upload-chunk-start")
+async def upload_chunk_start(request: dict[str, Any]) -> dict[str, Any]:
+    """Start a chunked upload session.
+
+    Returns an uploadId used to upload individual parts.
+    """
+    filename = request.get("filename")
+    if not filename:
+        raise HTTPException(status_code=400, detail="Missing filename")
+
+    _cleanup_stale_uploads()
+
+    upload_id = f"up_{int(time.time())}_{(''.join(random.choices(string.ascii_lowercase, k=8)))}"
+    upload_dir = _UPLOAD_TMP / upload_id
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    _UPLOAD_SESSIONS[upload_id] = {
+        "filename": filename,
+        "created_at": time.time(),
+    }
+
+    print(f"[upload-chunk] Created session {upload_id} for {filename}")
+    return {"uploadId": upload_id, "key": upload_id}
+
+
+@app.post("/upload-chunk-part")
+async def upload_chunk_part(
+    chunk: Annotated[UploadFile, File()],
+    uploadId: Annotated[str, Form()],
+    key: Annotated[str, Form()] = "",
+    partNumber: Annotated[int, Form()] = 1,
+) -> dict[str, Any]:
+    """Upload a single chunk/part of a file."""
+    if uploadId not in _UPLOAD_SESSIONS:
+        raise HTTPException(status_code=400, detail="Unknown upload ID – session may have expired")
+
+    data = await chunk.read()
+    part_path = _UPLOAD_TMP / uploadId / f"part_{partNumber:05d}"
+    part_path.write_bytes(data)
+
+    print(f"[upload-chunk] Wrote part {partNumber} ({len(data) / 1024 / 1024:.2f} MB)")
+    return {"etag": f"part-{partNumber}", "partNumber": partNumber}
+
+
+@app.post("/upload-chunk-complete")
+async def upload_chunk_complete(request: dict[str, Any]) -> dict[str, Any]:
+    """Complete a chunked upload: assemble parts and process the file."""
+    upload_id = request.get("uploadId") or request.get("key")
+    if not upload_id or upload_id not in _UPLOAD_SESSIONS:
+        raise HTTPException(status_code=400, detail="Unknown upload ID – session may have expired")
+
+    session = _UPLOAD_SESSIONS.pop(upload_id)
+    upload_dir = _UPLOAD_TMP / upload_id
+    filename = request.get("filename") or session.get("filename", "unknown")
+
+    try:
+        # Assemble all parts in order
+        part_files = sorted(upload_dir.glob("part_*"))
+        if not part_files:
+            raise HTTPException(status_code=400, detail="No parts found for this upload")
+
+        assembled = b"".join(p.read_bytes() for p in part_files)
+        print(f"[upload-chunk] Assembled {len(part_files)} parts ({len(assembled) / 1024 / 1024:.2f} MB)")
+
+        fake_file = _make_file_obj(assembled, filename)
+        return await _process_file(fake_file, filename)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+
+        error_detail = f"{str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+        raise HTTPException(status_code=500, detail=error_detail) from e
+    finally:
+        _shutil.rmtree(upload_dir, ignore_errors=True)
 
 
 @app.get("/health")
