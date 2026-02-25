@@ -235,18 +235,72 @@ export default function Home() {
 
         // Choose upload method based on file size
         if (file.size > BLOB_UPLOAD_THRESHOLD) {
-          // Large files: Use server-side upload proxy (avoids CORS issues with client-side blob)
-          console.log(`Using server-side upload for ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+          // Large files: Use chunked multipart upload via server to bypass 4.5MB serverless body limit.
+          // Splits file into chunks, uploads each through /api/upload-chunk, then processes the blob.
+          const CHUNK_SIZE = 3.5 * 1024 * 1024; // 3.5MB chunks (well within 4.5MB serverless limit)
+          const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+          console.log(`Using chunked upload for ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB, ${totalChunks} chunks)`);
 
-          const largeFormData = new FormData();
-          largeFormData.append('file', file);
-          largeFormData.append('filename', finalFilename);
+          // Step 1: Create multipart upload
+          const createRes = await fetch('/api/upload-chunk?action=create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: finalFilename }),
+          });
+          if (!createRes.ok) {
+            const errData = await createRes.json().catch(() => ({}));
+            throw new Error(errData.error || 'Failed to start chunked upload');
+          }
+          const { uploadId, key } = await createRes.json();
 
+          // Step 2: Upload each chunk as a part
+          const parts: Array<{ etag: string; partNumber: number }> = [];
+          for (let i = 0; i < totalChunks; i++) {
+            const start = i * CHUNK_SIZE;
+            const end = Math.min(start + CHUNK_SIZE, file.size);
+            const chunk = file.slice(start, end);
+            const partNumber = i + 1; // 1-indexed
+
+            setUploadStatus(`Uploading ${displayName}... (part ${partNumber}/${totalChunks}) Do not refresh the page.`);
+
+            const partFormData = new FormData();
+            partFormData.append('chunk', chunk);
+            partFormData.append('uploadId', uploadId);
+            partFormData.append('key', key);
+            partFormData.append('partNumber', String(partNumber));
+
+            const partRes = await fetch('/api/upload-chunk?action=part', {
+              method: 'POST',
+              body: partFormData,
+            });
+            if (!partRes.ok) {
+              const errData = await partRes.json().catch(() => ({}));
+              throw new Error(errData.error || `Failed to upload part ${partNumber}`);
+            }
+            const partData = await partRes.json();
+            parts.push({ etag: partData.etag, partNumber: partData.partNumber });
+          }
+
+          // Step 3: Complete multipart upload
+          setUploadStatus(`Processing ${displayName}... Do not refresh the page.`);
+          const completeRes = await fetch('/api/upload-chunk?action=complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uploadId, key, parts }),
+          });
+          if (!completeRes.ok) {
+            const errData = await completeRes.json().catch(() => ({}));
+            throw new Error(errData.error || 'Failed to complete chunked upload');
+          }
+          const { url: blobUrl } = await completeRes.json();
+
+          // Step 4: Process the blob via backend
+          console.log(`Chunked upload complete: ${blobUrl}, sending for processing...`);
           const res = await fetch('/api/upload-large', {
             method: 'POST',
-            body: largeFormData,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: blobUrl, filename: finalFilename }),
           });
-
           if (!res.ok) {
             const errData = await res.json().catch(() => ({}));
             throw new Error(errData.error || errData.detail || 'Upload failed');
