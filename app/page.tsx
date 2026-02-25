@@ -235,38 +235,25 @@ export default function Home() {
 
         // Choose upload method based on file size
         if (file.size > BLOB_UPLOAD_THRESHOLD) {
-          // Large files: Use chunked multipart upload via server to bypass 4.5MB serverless body limit.
-          // Splits file into chunks, uploads each through /api/upload-chunk, then processes the blob.
-          const CHUNK_SIZE = 3.5 * 1024 * 1024; // 3.5MB chunks (well within 4.5MB serverless limit)
+          // Large files: Upload in chunks via server to bypass 4.5MB serverless body limit.
+          // Each chunk is stored as an individual blob, then combined server-side.
+          const CHUNK_SIZE = 3.5 * 1024 * 1024; // 3.5MB chunks (within 4.5MB serverless limit)
           const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
           console.log(`Using chunked upload for ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB, ${totalChunks} chunks)`);
 
-          // Step 1: Create multipart upload
-          const createRes = await fetch('/api/upload-chunk?action=create', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ filename: finalFilename }),
-          });
-          if (!createRes.ok) {
-            const errData = await createRes.json().catch(() => ({}));
-            throw new Error(errData.error || 'Failed to start chunked upload');
-          }
-          const { uploadId, key } = await createRes.json();
-
-          // Step 2: Upload each chunk as a part
-          const parts: Array<{ etag: string; partNumber: number }> = [];
+          // Step 1: Upload each chunk as an individual blob
+          const parts: Array<{ url: string; partNumber: number }> = [];
           for (let i = 0; i < totalChunks; i++) {
             const start = i * CHUNK_SIZE;
             const end = Math.min(start + CHUNK_SIZE, file.size);
             const chunk = file.slice(start, end);
-            const partNumber = i + 1; // 1-indexed
+            const partNumber = i + 1;
 
             setUploadStatus(`Uploading ${displayName}... (part ${partNumber}/${totalChunks}) Do not refresh the page.`);
 
             const partFormData = new FormData();
             partFormData.append('chunk', chunk);
-            partFormData.append('uploadId', uploadId);
-            partFormData.append('key', key);
+            partFormData.append('filename', finalFilename);
             partFormData.append('partNumber', String(partNumber));
 
             const partRes = await fetch('/api/upload-chunk?action=part', {
@@ -278,23 +265,24 @@ export default function Home() {
               throw new Error(errData.error || `Failed to upload part ${partNumber}`);
             }
             const partData = await partRes.json();
-            parts.push({ etag: partData.etag, partNumber: partData.partNumber });
+            parts.push({ url: partData.url, partNumber: partData.partNumber });
           }
 
-          // Step 3: Complete multipart upload
-          setUploadStatus(`Processing ${displayName}... Do not refresh the page.`);
+          // Step 2: Combine parts into single blob server-side
+          setUploadStatus(`Assembling ${displayName}... Do not refresh the page.`);
           const completeRes = await fetch('/api/upload-chunk?action=complete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uploadId, key, parts }),
+            body: JSON.stringify({ filename: finalFilename, parts }),
           });
           if (!completeRes.ok) {
             const errData = await completeRes.json().catch(() => ({}));
-            throw new Error(errData.error || 'Failed to complete chunked upload');
+            throw new Error(errData.error || 'Failed to combine upload parts');
           }
           const { url: blobUrl } = await completeRes.json();
 
-          // Step 4: Process the blob via backend
+          // Step 3: Process the blob via backend
+          setUploadStatus(`Processing ${displayName}... Do not refresh the page.`);
           console.log(`Chunked upload complete: ${blobUrl}, sending for processing...`);
           const res = await fetch('/api/upload-large', {
             method: 'POST',
