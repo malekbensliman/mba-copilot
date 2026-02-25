@@ -235,27 +235,15 @@ export default function Home() {
 
         // Choose upload method based on file size
         if (file.size > BLOB_UPLOAD_THRESHOLD) {
-          // Large files: chunked upload directly to the Python backend via /tmp.
-          // Each chunk stays under 4.5MB (Vercel serverless body limit).
-          // The backend assembles the parts and processes the file in one step.
-          const CHUNK_SIZE = 3.5 * 1024 * 1024; // 3.5MB chunks
+          // Large files: each chunk is uploaded as an individual blob via put()
+          // (no 5MB minimum like S3 multipart), then the backend downloads all
+          // parts in parallel, concatenates, and processes the assembled file.
+          const CHUNK_SIZE = 3.5 * 1024 * 1024; // 3.5MB (within 4.5MB serverless limit)
           const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
           console.log(`Using chunked upload for ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB, ${totalChunks} chunks)`);
 
-          // Step 1: Start chunked upload session
-          const createRes = await fetch('/backend/upload-chunk-start', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ filename: finalFilename }),
-          });
-          if (!createRes.ok) {
-            const errData = await createRes.json().catch(() => ({}));
-            throw new Error(errData.detail || errData.error || 'Failed to start chunked upload');
-          }
-          const { uploadId, key } = await createRes.json();
-
-          // Step 2: Upload each chunk
-          const parts: Array<{ etag: string; partNumber: number }> = [];
+          // Step 1: Upload each chunk as an individual blob
+          const parts: Array<{ url: string; partNumber: number }> = [];
           for (let i = 0; i < totalChunks; i++) {
             const start = i * CHUNK_SIZE;
             const end = Math.min(start + CHUNK_SIZE, file.size);
@@ -266,32 +254,30 @@ export default function Home() {
 
             const partFormData = new FormData();
             partFormData.append('chunk', chunk);
-            partFormData.append('uploadId', uploadId);
-            partFormData.append('key', key);
             partFormData.append('partNumber', String(partNumber));
 
-            const partRes = await fetch('/backend/upload-chunk-part', {
+            const partRes = await fetch('/api/upload-chunk?action=part', {
               method: 'POST',
               body: partFormData,
             });
             if (!partRes.ok) {
               const errData = await partRes.json().catch(() => ({}));
-              throw new Error(errData.detail || errData.error || `Failed to upload part ${partNumber}`);
+              throw new Error(errData.error || `Failed to upload part ${partNumber}`);
             }
             const partData = await partRes.json();
-            parts.push({ etag: partData.etag, partNumber: partData.partNumber });
+            parts.push({ url: partData.url, partNumber: partData.partNumber });
           }
 
-          // Step 3: Complete upload — backend assembles and processes the file
+          // Step 2: Complete — backend downloads parts, concatenates, and processes
           setUploadStatus(`Processing ${displayName}... Do not refresh the page.`);
-          const completeRes = await fetch('/backend/upload-chunk-complete', {
+          const completeRes = await fetch('/api/upload-chunk?action=complete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uploadId, key, parts, filename: finalFilename }),
+            body: JSON.stringify({ parts, filename: finalFilename }),
           });
           if (!completeRes.ok) {
             const errData = await completeRes.json().catch(() => ({}));
-            throw new Error(errData.detail || errData.error || 'Failed to process upload');
+            throw new Error(errData.error || 'Failed to process upload');
           }
 
           data = await completeRes.json();
