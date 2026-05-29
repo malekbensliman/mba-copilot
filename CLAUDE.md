@@ -21,14 +21,14 @@ OpenAI + Pinecone keys. Built for a Columbia Business School GenAI course.
 Tooling: **mise** (tool versions + `.env` loading) + **uv** (Python deps/venv); Node via mise.
 
 - `make setup` — install everything · `make dev-all` — both servers · `make dev` / `make dev-api`
-- `make lint` — ruff + mypy + eslint · `make format` — ruff · `make test` — pytest
+- `make lint` — ruff + ty + eslint · `make format` — ruff · `make test` — pytest
 - `make requirements` — regenerate `requirements.txt` from `pyproject.toml` **for Vercel's
   Python build**. Run after any dependency change, or the deploy ships stale deps.
 
 ## Conventions
 
-- Python: ruff (google-style docstrings, line-length 100, mccabe ≤15) + mypy strict
-  (`disallow_untyped_defs` — every function fully type-annotated).
+- Python: ruff (google-style docstrings, line-length 100, mccabe ≤15) for lint/format,
+  and `ty` (Astral's type checker) for type checking.
 - TypeScript: eslint (no prettier).
 
 ## Gotchas (load-bearing — these cause silent failures if ignored)
