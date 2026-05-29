@@ -368,17 +368,30 @@ export default function Home() {
 
         successCount++;
 
-        // Add the new document to selection
+        // Show the new document immediately from data we already have. We do
+        // NOT refetch from the backend here: Pinecone serverless is eventually
+        // consistent, so a just-upserted document is often missing from a query
+        // for a few seconds — refetching would make it flicker out of the list.
         if (data.document_id && !data.document_id.startsWith('temp_')) {
-          setSelectedDocIds((prev) => [...prev, data.document_id]);
+          const newDoc: Document = {
+            id: data.document_id,
+            filename: data.filename,
+            chunks: data.chunks,
+            uploaded_at: new Date().toISOString(),
+          };
+          // Replace any prior doc with the same id or filename (the backend
+          // dedupes same-filename uploads), then append the new one.
+          setDocuments((prev) => [
+            ...prev.filter((d) => d.id !== newDoc.id && d.filename !== newDoc.filename),
+            newDoc,
+          ]);
+          setSelectedDocIds((prev) => (prev.includes(newDoc.id) ? prev : [...prev, newDoc.id]));
         }
       } catch (err) {
         console.error(`Failed to upload ${file.name}:`, err);
         failCount++;
       }
     }
-
-    await fetchDocuments();
 
     if (failCount === 0) {
       const message = folderName
@@ -394,7 +407,7 @@ export default function Home() {
 
     setIsUploading(false);
     setTimeout(() => setUploadStatus(null), 3000);
-  }, [fetchDocuments]);
+  }, []);
 
   const onDrop = useCallback(async (acceptedFiles: File[], _fileRejections: unknown, event: DropEvent) => {
     // Try to extract folder structure from drag event
@@ -476,8 +489,10 @@ export default function Home() {
     try {
       const res = await fetch(`/api/backend/documents/${id}`, { method: 'DELETE' });
       if (res.ok) {
+        // Optimistic removal, for the same eventual-consistency reason as
+        // uploads: a refetch here can still return the just-deleted doc.
+        setDocuments((prev) => prev.filter((d) => d.id !== id));
         setSelectedDocIds((prev) => prev.filter((sid) => sid !== id));
-        await fetchDocuments();
       }
     } catch (err) {
       console.error('Delete error:', err);
