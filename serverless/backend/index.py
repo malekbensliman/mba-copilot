@@ -5,7 +5,6 @@ A RAG-powered document Q&A system for MBA students.
 
 from __future__ import annotations
 
-import csv
 import io
 import logging
 import os
@@ -274,68 +273,6 @@ def _extract_pptx_text(content: bytes) -> str:
         slides_out.append("\n".join(parts).strip())
 
     return "\n\n".join(s for s in slides_out if s).strip()
-
-
-def _extract_csv_structured(content: bytes) -> list[dict[str, Any]]:
-    """Extract CSV as row-based chunks with column headers.
-
-    Each row becomes a chunk formatted as: "ColA: valA | ColB: valB | ..."
-    """
-    text = content.decode("utf-8-sig", errors="replace")
-    reader = csv.DictReader(io.StringIO(text))
-
-    rows: list[dict[str, Any]] = []
-    for idx, row in enumerate(reader, start=1):
-        # Format: "ColA: valA | ColB: valB"
-        chunk_text = " | ".join(f"{k}: {v}" for k, v in row.items() if v and v.strip())
-        if chunk_text.strip():
-            rows.append(
-                {
-                    "row_number": idx,
-                    "text": chunk_text,
-                }
-            )
-
-    return rows
-
-
-def _extract_pdf_with_pages(content: bytes) -> list[dict[str, Any]]:
-    """Extract PDF with page-level metadata.
-
-    Returns list of dicts with: page_number, text
-    """
-    doc = fitz.open(stream=content, filetype="pdf")
-    try:
-        pages: list[dict[str, Any]] = []
-        y_tol = 3.0  # points
-
-        for page_num, page in enumerate(doc, start=1):
-            blocks: Any = page.get_text("blocks")
-            clean_blocks: list[Any] = []
-
-            for b in blocks:
-                if (
-                    isinstance(b, (tuple, list))
-                    and len(b) >= 5
-                    and isinstance(b[4], str)
-                    and b[4].strip()
-                ):
-                    clean_blocks.append(b)
-
-            clean_blocks.sort(key=lambda b: (round(float(b[1]) / y_tol), float(b[0])))
-
-            page_text = "\n".join(str(b[4]).rstrip() for b in clean_blocks).strip()
-            if page_text:
-                pages.append(
-                    {
-                        "page_number": page_num,
-                        "text": page_text,
-                    }
-                )
-
-        return pages
-    finally:
-        doc.close()
 
 
 def extract_structured_chunks(file: UploadFile) -> list[dict[str, Any]]:
