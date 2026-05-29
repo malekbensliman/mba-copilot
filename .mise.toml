@@ -1,10 +1,18 @@
 # mise configuration for mba-copilot
-# Pins tool versions and auto-loads the gitignored .env for local secrets.
-# See the Makefile for the canonical task commands; tasks below mirror them.
+#
+# mise orchestrates the toolchain: it manages `uv` and `node`, auto-loads the
+# gitignored .env, and auto-creates/sources uv's virtualenv. Python itself is
+# provided by uv (driven by the .python-version file), so mise does not install
+# a separate python-build-standalone.
+# Pattern: https://mise.jdx.dev/mise-cookbook/python.html
 
 [tools]
-python = "3.12.2"
+uv = "latest"
 node = "20"
+
+[settings]
+# Create the uv virtualenv if missing, then auto-source it on entering the dir.
+python.uv_venv_auto = "create|source"
 
 [env]
 # Auto-load the gitignored .env (secrets live there, never in this file).
