@@ -18,10 +18,12 @@ import { useDropzone, type DropEvent } from 'react-dropzone';
 import ReactMarkdown from 'react-markdown';
 import DocumentTree from './components/DocumentTree';
 import PasswordGate from './components/PasswordGate';
+import SetupDiagnostics from './components/SetupDiagnostics';
 import SettingsModal, { loadSettings } from './components/SettingsModal';
 import type {
   ChatResponse,
   ChatSettings,
+  DiagnosticsResult,
   Document,
   DocumentsResponse,
   Message,
@@ -42,6 +44,7 @@ export default function Home() {
   const [isResizing, setIsResizing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<DiagnosticsResult | null>(null);
   const [settings, setSettings] = useState<ChatSettings>(DEFAULT_SETTINGS);
   const [expandedSources, setExpandedSources] = useState<Set<number>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -105,6 +108,16 @@ export default function Home() {
   useEffect(() => {
     fetchDocuments();
   }, [fetchDocuments]);
+
+  // Run config diagnostics on mount (non-blocking; the banner only shows on failure)
+  useEffect(() => {
+    fetch('/api/backend/diagnostics')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: DiagnosticsResult | null) => {
+        if (data) setDiagnostics(data);
+      })
+      .catch(() => {});
+  }, []);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -485,7 +498,9 @@ export default function Home() {
 
   return (
     <PasswordGate>
-      <div className="flex h-screen bg-slate-50">
+      <div className="flex flex-col h-screen">
+        {diagnostics && !diagnostics.ok && <SetupDiagnostics result={diagnostics} />}
+        <div className="flex flex-1 min-h-0 bg-slate-50">
         {/* Error Banner */}
         {error && (
           <div className="fixed top-0 left-0 right-0 z-50 bg-red-500 text-white px-4 py-2 text-center text-sm">
@@ -799,6 +814,7 @@ export default function Home() {
             </form>
           </div>
         </main>
+        </div>
       </div>
     </PasswordGate>
   );
