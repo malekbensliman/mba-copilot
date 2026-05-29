@@ -302,19 +302,39 @@ export default function Home() {
 
             setUploadStatus(`Uploading ${displayName}... (part ${partNumber}/${totalChunks}) Do not refresh the page.`);
 
-            const partFormData = new FormData();
-            partFormData.append('chunk', chunk);
-            partFormData.append('partNumber', String(partNumber));
+            // Vercel sometimes kills the function right after the blob upload
+            // succeeds but before it returns the part URL (the client sees a
+            // 500 / no status). The blob is fine — retrying the part with
+            // backoff almost always lands it, so don't fail the whole file.
+            let partData: { url: string; partNumber: number } | undefined;
+            const maxAttempts = 4;
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+              try {
+                const partFormData = new FormData();
+                partFormData.append('chunk', chunk);
+                partFormData.append('partNumber', String(partNumber));
 
-            const partRes = await fetch('/api/upload-chunk?action=part', {
-              method: 'POST',
-              body: partFormData,
-            });
-            if (!partRes.ok) {
-              const errData = await partRes.json().catch(() => ({}));
-              throw new Error(errData.error || `Failed to upload part ${partNumber}`);
+                const partRes = await fetch('/api/upload-chunk?action=part', {
+                  method: 'POST',
+                  body: partFormData,
+                });
+                if (!partRes.ok) {
+                  const errData = await partRes.json().catch(() => ({}));
+                  throw new Error(errData.error || `Part ${partNumber} failed (HTTP ${partRes.status})`);
+                }
+                partData = await partRes.json();
+                break;
+              } catch (err) {
+                if (attempt === maxAttempts) throw err;
+                await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** (attempt - 1)));
+                setUploadStatus(
+                  `Uploading ${displayName}... (part ${partNumber}/${totalChunks}, retry ${attempt}/${maxAttempts - 1}) Do not refresh the page.`,
+                );
+              }
             }
-            const partData = await partRes.json();
+            if (!partData) {
+              throw new Error(`Failed to upload part ${partNumber}`);
+            }
             parts.push({ url: partData.url, partNumber: partData.partNumber });
           }
 
