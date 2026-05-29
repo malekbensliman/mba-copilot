@@ -32,17 +32,17 @@ def test_chat_error_returns_clean_detail() -> None:
     assert "Traceback" not in str(exc_info.value.detail)
 
 
-def test_upload_error_returns_clean_detail() -> None:
-    """A failure during upload yields a generic 500 without a traceback."""
+def test_extract_error_returns_clean_detail() -> None:
+    """A failure during extract yields a generic 500 without a traceback."""
     upload_file = UploadFile(file=BytesIO(b"some content"), filename="notes.txt")
 
     with mock.patch.object(
-        backend, "_process_file", side_effect=RuntimeError("secret-internal-error")
+        backend, "_extract_and_dedupe", side_effect=RuntimeError("secret-internal-error")
     ):
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.run(backend.upload(upload_file, None))
+            asyncio.run(backend.extract(upload_file, None))
 
     assert exc_info.value.status_code == 500
-    assert exc_info.value.detail == "Failed to process the document."
+    assert exc_info.value.detail == "Failed to extract the document."
     assert "secret-internal-error" not in str(exc_info.value.detail)
     assert "Traceback" not in str(exc_info.value.detail)

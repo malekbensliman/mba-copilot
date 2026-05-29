@@ -26,10 +26,47 @@ import type {
   DiagnosticsResult,
   Document,
   DocumentsResponse,
+  ExtractResponse,
   Message,
   UploadResponse,
 } from './types';
 import { DEFAULT_SETTINGS } from './types';
+
+// Chunks embedded per /embed-batch request. A whole batch's text stays well
+// under Vercel's 4.5MB body limit, and each request finishes well under the
+// 60s function cap — so large documents index across many short calls.
+const EMBED_BATCH_SIZE = 25;
+
+/**
+ * Embed and store an extracted document one batch at a time.
+ *
+ * Phase 2 of batched ingestion: the browser drives the loop so a large
+ * document is indexed across many short backend calls instead of one request
+ * that would exceed the serverless time limit.
+ */
+async function embedInBatches(
+  extracted: ExtractResponse,
+  displayName: string,
+  setStatus: (status: string) => void,
+): Promise<void> {
+  const { document_id, filename, uploaded_at, total_chunks, chunks } = extracted;
+
+  for (let i = 0; i < chunks.length; i += EMBED_BATCH_SIZE) {
+    const batch = chunks.slice(i, i + EMBED_BATCH_SIZE);
+    const done = Math.min(i + batch.length, total_chunks);
+    setStatus(`Indexing ${displayName}... (${done}/${total_chunks} chunks) Do not refresh the page.`);
+
+    const res = await fetch('/api/backend/embed-batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ document_id, filename, uploaded_at, total_chunks, chunks: batch }),
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || errData.error || 'Indexing failed');
+    }
+  }
+}
 
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -281,51 +318,80 @@ export default function Home() {
             parts.push({ url: partData.url, partNumber: partData.partNumber });
           }
 
-          // Step 2: Complete — backend downloads parts, concatenates, and processes
+          // Step 2: Extract — backend downloads parts, concatenates, and parses
+          // into chunks (no embedding yet), so this request stays under the
+          // serverless time limit even for large files.
           setUploadStatus(`Processing ${displayName}... Do not refresh the page.`);
-          const completeRes = await fetch('/api/upload-chunk?action=complete', {
+          const extractRes = await fetch('/api/upload-chunk?action=extract', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ parts, filename: finalFilename }),
           });
-          if (!completeRes.ok) {
-            const errData = await completeRes.json().catch(() => ({}));
-            throw new Error(errData.error || 'Failed to process upload');
+          if (!extractRes.ok) {
+            const errData = await extractRes.json().catch(() => ({}));
+            throw new Error(errData.error || errData.detail || 'Failed to process upload');
           }
 
-          data = await completeRes.json();
+          const extracted: ExtractResponse = await extractRes.json();
+          // Step 3: Embed the parsed chunks in batches from the browser.
+          await embedInBatches(extracted, displayName, setUploadStatus);
+          data = {
+            success: true,
+            document_id: extracted.document_id,
+            filename: extracted.filename,
+            chunks: extracted.total_chunks,
+          };
         } else {
-          // Small files: Direct upload
+          // Small files: same two-phase flow (extract, then embed in batches).
           console.log(`Using direct upload for ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
 
           formData.append('filename', finalFilename);
 
-          const res = await fetch('/api/backend/upload', {
+          const res = await fetch('/api/backend/extract', {
             method: 'POST',
             body: formData,
           });
-
           if (!res.ok) {
             const errData = await res.json().catch(() => ({}));
             throw new Error(errData.detail || 'Upload failed');
           }
 
-          data = await res.json();
+          const extracted: ExtractResponse = await res.json();
+          await embedInBatches(extracted, displayName, setUploadStatus);
+          data = {
+            success: true,
+            document_id: extracted.document_id,
+            filename: extracted.filename,
+            chunks: extracted.total_chunks,
+          };
         }
 
         successCount++;
 
-        // Add the new document to selection
+        // Show the new document immediately from data we already have. We do
+        // NOT refetch from the backend here: Pinecone serverless is eventually
+        // consistent, so a just-upserted document is often missing from a query
+        // for a few seconds — refetching would make it flicker out of the list.
         if (data.document_id && !data.document_id.startsWith('temp_')) {
-          setSelectedDocIds((prev) => [...prev, data.document_id]);
+          const newDoc: Document = {
+            id: data.document_id,
+            filename: data.filename,
+            chunks: data.chunks,
+            uploaded_at: new Date().toISOString(),
+          };
+          // Replace any prior doc with the same id or filename (the backend
+          // dedupes same-filename uploads), then append the new one.
+          setDocuments((prev) => [
+            ...prev.filter((d) => d.id !== newDoc.id && d.filename !== newDoc.filename),
+            newDoc,
+          ]);
+          setSelectedDocIds((prev) => (prev.includes(newDoc.id) ? prev : [...prev, newDoc.id]));
         }
       } catch (err) {
         console.error(`Failed to upload ${file.name}:`, err);
         failCount++;
       }
     }
-
-    await fetchDocuments();
 
     if (failCount === 0) {
       const message = folderName
@@ -341,7 +407,7 @@ export default function Home() {
 
     setIsUploading(false);
     setTimeout(() => setUploadStatus(null), 3000);
-  }, [fetchDocuments]);
+  }, []);
 
   const onDrop = useCallback(async (acceptedFiles: File[], _fileRejections: unknown, event: DropEvent) => {
     // Try to extract folder structure from drag event
@@ -423,8 +489,10 @@ export default function Home() {
     try {
       const res = await fetch(`/api/backend/documents/${id}`, { method: 'DELETE' });
       if (res.ok) {
+        // Optimistic removal, for the same eventual-consistency reason as
+        // uploads: a refetch here can still return the just-deleted doc.
+        setDocuments((prev) => prev.filter((d) => d.id !== id));
         setSelectedDocIds((prev) => prev.filter((sid) => sid !== id));
-        await fetchDocuments();
       }
     } catch (err) {
       console.error('Delete error:', err);
