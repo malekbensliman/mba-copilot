@@ -20,155 +20,82 @@ Your personal AI assistant for MBA coursework. Upload your course materials and 
 
 ## Quick Start (For Students)
 
-### Step 1: Get API Keys (5 minutes)
+You'll fill in one file — `.env` — across these steps, then paste it into Vercel. **No terminal required.**
 
-The copilot requires keys from both OpenAI and Pinecone.
+### Step 1: Get your `.env` file
 
-#### Step 1.1: OpenAI Configuration
+Two ways to get it:
 
-You have two options for accessing OpenAI:
+- **From Canvas (easiest for the course):** download the ready-made `.env` your instructor posted — the OpenAI settings are already filled in, so you only add your Pinecone key and a password.
+- **From GitHub:** download <a href="https://github.com/malekbensliman/mba-copilot/blob/main/.env.example" target="_blank">`.env.example`</a> and save it as `.env`. You'll fill in every value below.
 
-**Option A: Use Columbia Business School's OpenAI Access (Recommended for students)**
+Open it in any text editor and keep it handy — the next steps fill in its values.
 
-If your instructor has provided access to Columbia's OpenAI endpoint:
+### Step 2: Fork the repo, then set your secret and password
 
-1. You'll receive an API key from your instructor
-2. You'll use:
-   - **API Key:** The key provided by your instructor
-   - **Base URL:** `https://cbsai.business.columbia.edu/api/v1`
-3. Move on to create Pinecone API Key as below (you don't need to create your own OpenAI account)
+1. Create a <a href="https://github.com/" target="_blank">GitHub</a> account if you don't have one.
+2. Go to the [MBA Copilot repository](https://github.com/malekbensliman/mba-copilot) and click **Fork** (top right). This creates your own copy.
 
-**Option B: Use Your Own OpenAI Account**
+Now fill in two values in your `.env` — neither needs an external account:
 
-1. Go to <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com</a>
-2. Sign in or create account
-3. Click "Create new secret key"
-4. Copy the key (starts with `sk-`)
-5. You'll use:
-   - **API Key:** Your OpenAI key
-   - **Base URL:** `https://api.openai.com/v1`
-6. Note: You'll be charged based on usage (~$1-5/semester)
+- **`AUTH_SECRET`** — visit <a href="https://generate-secret.vercel.app/32" target="_blank">generate-secret.vercel.app/32</a> and copy **one** value into your `.env`. It's a random server-side key that signs your login session so it can't be forged. You set it **once** and it never changes (the page shows a different string on every refresh — that's just it offering fresh randomness; pick one and keep it). You never type this to log in — that's the password below.
+- **`AUTH_PASSWORD`** — choose a memorable password. You'll share it with anyone you want to give access (classmates, study group). Example: `columbia-rag-spring`.
 
-#### Step 1.2: Pinecone API Key
+### Step 3: Get your OpenAI access (5 minutes)
 
-1. Go to <a href="https://app.pinecone.io/" target="_blank">app.pinecone.io</a>
-2. Create a free account (Note: you do not need to fill all the account information - "Skip" button availabe on top of the page)
+You have two options:
 
-Pinecone will provide you with a default API key which you may use. Make sure to copy and save the API key.
+**Option A — Columbia Business School's endpoint (recommended for students)**
 
-If you need to generate a new key, follow the steps below:
+If your instructor provided access to Columbia's OpenAI endpoint, set in your `.env`:
 
-1. Click "API Keys" in the sidebar
-2. Click **"+ API Key"**
-3. Give the key a name (e.g., mbacopilot)
-4. Click **"Create Key"**
-5. Copy and Save your API key
+- `OPENAI_API_KEY` = the key from your instructor
+- `OPENAI_BASE_URL` = `https://cbsai.business.columbia.edu/api/v1`
 
-### Step 2: Fork the Repository
+(If you downloaded the `.env` from Canvas, these may already be filled in — you can skip this step.)
 
-1. Create a github account
-2. Go to the [MBA Copilot GitHub repository](https://github.com/malekbensliman/mba-copilot)
-3. Click the **"Fork"** button in the top right
-4. This creates your own copy of the project
+**Option B — your own OpenAI account**
 
-### Step 3: Create Pinecone Index (2 minutes)
+1. Go to <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com</a>, sign in, and click **Create new secret key**.
+2. Copy the key (starts with `sk-`), then set in your `.env`:
+   - `OPENAI_API_KEY` = your key
+   - `OPENAI_BASE_URL` = `https://api.openai.com/v1`
+3. Note: you'll be charged based on usage (~$1–5/semester).
 
-In the Pinecone console:
+### Step 4: Get your Pinecone key and create the index (5 minutes)
 
-1. Click **"Database"** on the left side panel
-2. Click **"Create Index"**
-3. Configure the index:
+1. Go to <a href="https://app.pinecone.io/" target="_blank">app.pinecone.io</a> and create a free account (you can "Skip" the optional account questions at the top).
+2. Copy your default API key — or create one under **API Keys → + API Key** — and set it in `.env` as `PINECONE_API_KEY`.
+3. Create the index: click **Database → Create Index** and configure it exactly:
    - **Name:** `mba-copilot`
    - **Model:** `text-embedding-3-large`
    - **Dimensions:** `1024`
    - **Metric:** `cosine`
-   - **Cloud Provider:** AWS (other providers require a paid subscription)
-   - **Region:** `us-east-1`
-4. Click **"Create Index"**
+   - **Cloud Provider:** AWS (other providers need a paid plan) · **Region:** `us-east-1`
+4. Set `PINECONE_INDEX` = `mba-copilot` in `.env` (must match the index name).
 
-**Important:** The dimensions **must be 1024** to match the OpenAI `text-embedding-3-large` model used by this app.
+**Important:** the dimension **must be 1024** to match the `text-embedding-3-large` embeddings this app uses.
 
-### Step 4: Generate Auth Secret
+### Step 5: Deploy to Vercel
 
-Visit <a href="https://generate-secret.vercel.app/32" target="_blank">generate-secret.vercel.app/32</a> and copy the generated secret.
+1. Go to <a href="https://vercel.com" target="_blank">vercel.com</a>, sign in, and click **Add New → Project**.
+2. Click **Continue with GitHub** and import your fork. Leave the build settings at their defaults (Framework: `Next.js`, Build: `npm run build`, Install: `npm install`).
+3. Open the **Environment Variables** section and **paste your completed `.env`** — Vercel parses every `KEY=value` line at once. You should have all six: `AUTH_SECRET`, `AUTH_PASSWORD`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `PINECONE_API_KEY`, `PINECONE_INDEX`.
+   - **Important:** apply them to **all environments** (Production, Preview, Development).
+4. Click **Deploy**. After 2–3 minutes you'll get a live URL at `https://your-project.vercel.app`.
 
-### Step 5: Choose a Password
+> If anything's misconfigured, the app shows a **setup banner** after you sign in, naming exactly what to fix (e.g. a wrong Pinecone dimension).
 
-Pick a memorable password for accessing your copilot. You'll share this with anyone you want to give access (classmates, study group members, etc.).
+### Step 6: Enable Vercel Blob Storage (for large files)
 
-**Example:** `mba-copilot-2024` or `columbia-rag-spring`
+**Required** if you'll upload files larger than 4 MB (big PDFs or slide decks). Blob is temporary storage for large uploads; files are deleted right after processing (free tier: 500 MB, your cost ≈ $0).
 
-### Step 6: Deploy to Vercel
+1. In your Vercel project, open the **Storage** tab → **Create Database → Blob**, name it (e.g. `mba-copilot-files`), and click **Create**.
+2. Click **Connect to Project** → select your project → **Connect**.
+3. Open **Settings → Deployment Protection** and disable **Vercel Authentication** (so classmates can reach the app without a Vercel login).
+4. Open the **Deployments** tab → the latest deployment's **⋯** menu → **Redeploy**.
 
-1. Go to <a href="https://vercel.com" target="_blank">vercel.com</a> and sign in
-2. Click **"Add New"** → **"Project"**
-3. Click **"Continue with GitHub"** and follow the instructions
-4. In the **New Project** page, choose a project name and configure the project (click "Build and Output Settings"):
-
-   | Setting              | Value               |
-   | -------------------- | ------------------- |
-   | **Framework Preset** | `Next.js`           |
-   | **Root Directory**   | `.` (leave default) |
-   | **Build Command**    | `npm run build`     |
-   | **Output Directory** | `.next`             |
-   | **Install Command**  | `npm install`       |
-
-5. **Add Environment Variables** (click "Environment Variables" section and "Add More"):
-
-   | Variable           | Value                                                                       | Where to Get It                        |
-   | ------------------ | --------------------------------------------------------------------------- | -------------------------------------- |
-   | `AUTH_SECRET`      | Output from `openssl rand -base64 32`                                       | Step 4 - random secret                 |
-   | `AUTH_PASSWORD`    | `your-password-here`                                                        | Step 5 - your chosen password          |
-   | `OPENAI_API_KEY`   | `sk-...` or instructor-provided key                                         | From Step 1                            |
-   | `OPENAI_BASE_URL`  | `https://api.openai.com/v1` OR `https://cbsai.business.columbia.edu/api/v1` | From Step 1 - depends on option chosen |
-   | `PINECONE_API_KEY` | `pc-...`                                                                    | From Step 1 - your Pinecone API key    |
-   | `PINECONE_INDEX`   | `mba-copilot`                                                               | Must match the index name from Step 3  |
-
-   **Important:** Make sure to add these for **all environments** (Production, Preview, Development)
-
-6. Click **"Deploy"**
-
-#### Wait for Deployment (2-3 minutes)
-
-Vercel will:
-
-- Install dependencies
-- Build your Next.js app
-- Deploy Python serverless functions
-- Provide you with a live URL
-
-**Done!** Your app will be live at `https://your-project.vercel.app`
-
-### Step 6.5: Enable Vercel Blob Storage (For Large Files)
-
-**Important:** This step is **required** if you plan to upload files larger than 4MB (like large PDFs or PowerPoint presentations).
-
-Vercel Blob storage is used as temporary storage for large files during upload. The files are automatically deleted after processing to minimize costs.
-
-1. Go to your Vercel project dashboard
-2. Click **"Storage"** tab in the top navigation
-3. Click **"Create Database"** → Select **"Blob"**
-4. Choose a name (e.g., `mba-copilot-files`)
-5. Click **"Create"**
-6. Click **"Connect to Project"**
-7. Select your `mba-copilot` project
-8. Click **"Connect"**
-9. Return to your Vercel project
-10. Click **"Settings"** tab in the top navigation
-11. Click **"Deployment Protection"** on the left side
-12. Disable **"Vercel Authentication"**
-13. Click **"Deployments"** tab in the top navigation
-14. Select the three dots in your current deployment and click on **Redeploy**
-
-Vercel will automatically add the `BLOB_READ_WRITE_TOKEN` environment variable to your project.
-
-**Storage Costs:**
-
-- **Free tier:** 500MB storage
-- **Pricing:** $0.15/GB/month after free tier
-- **Your cost:** ~$0 (files are deleted immediately after processing)
-
-**Skip this step if:** You only need to upload small files (< 4MB). The app will still work, but large file uploads will fail.
+Vercel adds the `BLOB_READ_WRITE_TOKEN` variable automatically. **Skip this** if you only upload small files (< 4 MB).
 
 ### Step 7: Sign In
 
@@ -605,7 +532,7 @@ mise run setup
 **"Upload failed" or "403 Forbidden"**
 
 - **For small files (< 4MB):** Check Vercel function logs for details
-- **For large files (> 4MB):** Make sure you've set up Vercel Blob storage (see Step 6.5)
+- **For large files (> 4MB):** Make sure you've set up Vercel Blob storage (see Step 6)
 - Verify `BLOB_READ_WRITE_TOKEN` is set in your environment variables
 - Try a different file format (PDF, DOCX, PPTX, TXT, MD, CSV supported)
 - Check file isn't corrupted by opening it locally first
