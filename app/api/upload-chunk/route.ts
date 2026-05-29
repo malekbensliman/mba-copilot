@@ -113,7 +113,13 @@ async function handleComplete(request: NextRequest) {
     // Clean up all part blobs (fire-and-forget)
     try {
       const { del } = await import('@vercel/blob');
-      await Promise.all(sortedUrls.map((url) => del(url).catch(() => {})));
+      await Promise.all(
+        sortedUrls.map((url) =>
+          del(url).catch((err) =>
+            console.error(`[upload-chunk] Failed to delete part blob ${url}:`, err)
+          )
+        )
+      );
       console.log(`[upload-chunk] Cleaned up ${sortedUrls.length} part blobs`);
     } catch {
       console.warn('[upload-chunk] Failed to clean up some part blobs');
