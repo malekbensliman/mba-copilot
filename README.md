@@ -237,8 +237,8 @@ This section walks you through setting up the template on GitHub so students can
 ### Prerequisites
 
 - <a href="https://git-scm.com/downloads" target="_blank">Git</a> installed
-- <a href="https://github.com/pyenv/pyenv#installation" target="_blank">pyenv</a> installed
-- <a href="https://nodejs.org/" target="_blank">Node.js 18+</a> installed
+- <a href="https://mise.jdx.dev/" target="_blank">mise</a> installed (manages the Python + Node versions)
+- <a href="https://docs.astral.sh/uv/" target="_blank">uv</a> installed (Python dependencies)
 - Make (comes with macOS/Linux, or install via `choco install make` on Windows)
 - A <a href="https://github.com/" target="_blank">GitHub</a> account
 - A code editor (VS Code recommended)
@@ -295,35 +295,32 @@ git remote add origin https://github.com/YOUR_USERNAME/mba-copilot.git
 ### Step 3: Install Dependencies
 
 ```bash
-# This installs Python (via pyenv), creates venv, installs Python + Node deps
+# Install the pinned Python (3.12.2) and Node (20) versions
+mise install
+
+# Create the uv venv and install Python + Node dependencies
 make setup
 ```
 
 This will:
 
-- Install Python 3.11.9 via pyenv (if not present)
-- Create a virtualenv named `mba-copilot-3.11.9`
-- Install Poetry and all Python dependencies
-- Install Node.js dependencies
+- Use the Python 3.12.2 and Node 20 versions pinned in `.mise.toml`
+- Create a project-local `.venv` via uv
+- Install all Python dependencies (uv) and Node dependencies (npm)
 
 ### Step 4: Set Up Environment Variables
 
 ```bash
-# Copy the example env file
-cp .env.example .env.local
+# Copy the example env file (gitignored; loaded by mise and the backend)
+cp .env.example .env
 
-# Edit with your editor
-code .env.local  # VS Code
-# or
-nano .env.local  # Terminal
+# Edit with your editor and fill in every value
+code .env
 ```
 
-Add your keys:
-
-```
-OPENAI_API_KEY=sk-your-actual-key
-PINECONE_API_KEY=your-actual-pinecone-key
-```
+`.env.example` lists all required variables — `AUTH_SECRET`, `AUTH_PASSWORD`,
+`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `PINECONE_API_KEY`, and `PINECONE_INDEX`.
+`AUTH_SECRET` must be set for both the frontend session and the backend auth check.
 
 ### Step 5: Test Locally
 
@@ -394,17 +391,20 @@ git push
 
 ### Prerequisites
 
-- <a href="https://github.com/pyenv/pyenv" target="_blank">pyenv</a> - Python version management
-- <a href="https://nodejs.org/" target="_blank">Node.js 18+</a>
+- <a href="https://mise.jdx.dev/" target="_blank">mise</a> — manages the pinned Python (3.12.2) and Node (20) versions and loads `.env`
+- <a href="https://docs.astral.sh/uv/" target="_blank">uv</a> — Python dependencies and virtualenv
 - Make (comes with macOS/Linux)
 
 ### Quick Start
 
 ```bash
-# One-time setup (installs Python 3.11, creates venv, installs all deps)
+# Install the pinned tool versions (Python 3.12.2, Node 20)
+mise install
+
+# One-time setup (creates the uv venv, installs Python + Node deps)
 make setup
 
-# Start both servers
+# Start both servers (frontend on :3000, backend on :8000)
 make dev-all
 ```
 
@@ -439,12 +439,12 @@ make nuke        # Full reset (removes venv + node_modules)
 │         http://localhost:3000           │
 │              (Next.js)                  │
 │                                         │
-│  Your browser talks to Next.js          │
-│  Next.js proxies /api/* requests        │
-│                                         │
+│  Your browser talks to Next.js, which   │
+│  gates /api/backend/* with the session  │
+│  and forwards to the Python backend     │
 └─────────────────────────────────────────┘
                     │
-                    │ /api/* requests
+                    │ /api/backend/* (authenticated)
                     ▼
 ┌─────────────────────────────────────────┐
 │         http://localhost:8000           │
@@ -458,7 +458,7 @@ make nuke        # Full reset (removes venv + node_modules)
 └─────────────────────────────────────────┘
 ```
 
-The `next.config.js` file proxies `/api/*` requests to the Python backend during development.
+In development the Next.js `/api/backend/*` route verifies the session and forwards requests to FastAPI on `localhost:8000`. In production, `vercel.json` routes `/backend/*` to the Python serverless function, and that same `/api/backend/*` route forwards to it with an internal-auth header.
 
 ### Environment Variables
 
@@ -474,23 +474,13 @@ The `next.config.js` file proxies `/api/*` requests to the Python backend during
 ### Useful Commands
 
 ```bash
-# Start frontend only
-npm run dev
-
-# Start backend only
-npm run dev:api
-
-# Start both (requires concurrently)
-npm run dev:all
-
-# Build for production
-npm run build
-
-# Lint code
-npm run lint
-
-# Create Python venv
-npm run setup
+make dev-all      # Both servers
+make dev          # Frontend only (Next.js on :3000)
+make dev-api      # Backend only (FastAPI on :8000)
+make format       # Format Python with ruff
+make lint         # Lint Python (ruff + mypy) and TypeScript (eslint)
+make test         # Run the Python test suite (pytest)
+make requirements # Regenerate requirements.txt for Vercel after changing deps
 ```
 
 ---
@@ -499,20 +489,25 @@ npm run setup
 
 ```
 mba-copilot/
-├── api/
-│   └── index.py              # Python backend (FastAPI)
+├── serverless/
+│   └── backend/
+│       └── index.py          # Python backend (FastAPI): chunking, embeddings, Pinecone, RAG
 ├── app/
 │   ├── layout.tsx            # Next.js layout
-│   ├── page.tsx              # Main UI component
-│   ├── globals.css           # Tailwind + custom styles
+│   ├── page.tsx              # Main chat UI
+│   ├── components/           # DocumentTree, SettingsModal, PasswordGate, ...
+│   ├── api/backend/[...path]/ # Authenticated proxy to the Python backend
+│   ├── api/upload-chunk/     # Chunked large-file upload
 │   └── types.ts              # TypeScript types
+├── lib/backend.ts            # Proxy helpers (internal-auth token, backend URL)
+├── auth.ts, proxy.ts         # NextAuth (proxy.ts is Next 16's renamed middleware)
+├── tests/                    # Python tests (pytest)
+├── .mise.toml                # Tool versions (uv, Node) + .env loading
 ├── Makefile                  # Development commands
-├── pyproject.toml            # Python dependencies (Poetry)
+├── pyproject.toml            # Python dependencies (uv)
+├── requirements.txt          # Generated from pyproject.toml for Vercel's Python build
 ├── package.json              # Node dependencies
-├── next.config.js            # Next.js config (API proxy)
-├── tailwind.config.ts        # Tailwind configuration
-├── tsconfig.json             # TypeScript configuration
-├── vercel.json               # Vercel deployment config
+├── vercel.json               # Vercel config (routes /backend/* to Python)
 ├── .env.example              # Environment template
 └── README.md
 ```
@@ -523,7 +518,7 @@ mba-copilot/
 
 ### Change the AI Model
 
-In `api/index.py`, find the `Config` class:
+In `serverless/backend/index.py`, find the `Config` class:
 
 ```python
 CHAT_MODEL = "gpt-4o-mini"    # Default: good balance
@@ -533,19 +528,22 @@ CHAT_MODEL = "gpt-4o-mini"    # Default: good balance
 
 ### Customize the System Prompt
 
-Edit `SYSTEM_PROMPT` in `api/index.py`:
+Edit the default `system_prompt` in `app/types.ts` (`DEFAULT_SETTINGS`), or change it per-session in the in-app Settings panel:
 
-```python
-SYSTEM_PROMPT = """You are an intelligent assistant for MBA students...
+```typescript
+system_prompt: `You are an intelligent assistant for MBA students...`
 ```
 
 ### Adjust RAG Settings
 
+In the `Config` class in `serverless/backend/index.py` (chunking is token-based):
+
 ```python
-CHUNK_SIZE = 1000      # Characters per chunk
-CHUNK_OVERLAP = 200    # Overlap between chunks
-TOP_K = 5              # Chunks to retrieve
-MIN_SCORE = 0.7        # Minimum similarity (0-1)
+CHUNK_TOKENS_DOCS = 800          # Tokens per chunk
+CHUNK_OVERLAP_TOKENS_DOCS = 150  # Token overlap between chunks
+RETRIEVAL_TOP_K = 20             # Candidate chunks retrieved from Pinecone
+CONTEXT_MAX_CHUNKS = 8           # Best chunks passed to the LLM
+MIN_SCORE = 0.25                 # Minimum similarity (0-1)
 ```
 
 ### Change Colors
@@ -568,24 +566,22 @@ colors: {
 
 ### Local Development Issues
 
-**"pyenv: command not found"**
+**"mise: command not found" or wrong Python/Node version**
 
 ```bash
 # macOS
-brew install pyenv pyenv-virtualenv
+brew install mise
+# Add to ~/.zshrc:  eval "$(mise activate zsh)"
 
-# Add to ~/.zshrc or ~/.bashrc:
-export PYENV_ROOT="$HOME/.pyenv"
-export PATH="$PYENV_ROOT/bin:$PATH"
-eval "$(pyenv init -)"
-eval "$(pyenv virtualenv-init -)"
+# Then, in the project, install the pinned versions:
+mise install   # Python 3.12.2 + Node 20
 ```
 
 **"Cannot connect to backend"**
 
 - Make sure you ran `make dev-all` or `make dev-api`
 - Check that port 8000 is not in use: `lsof -i :8000`
-- Verify `.env.local` exists with valid API keys
+- Verify `.env` exists with valid API keys
 
 **"Module not found" in Python**
 
