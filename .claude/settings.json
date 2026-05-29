@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty' 2>/dev/null); case \"$f\" in *serverless/*.py) (cd \"${CLAUDE_PROJECT_DIR:-.}\" && uv run ruff format \"$f\" && uv run ruff check --select I --fix \"$f\") >/dev/null 2>&1 ;; esac; exit 0"
+          },
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty' 2>/dev/null); case \"$f\" in *pyproject.toml|*uv.lock) echo 'Reminder: Python deps changed - run `make requirements` to refresh requirements.txt for Vercel.' ;; esac; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+# mise configuration for mba-copilot
+# Pins tool versions and auto-loads the gitignored .env for local secrets.
+# See the Makefile for the canonical task commands; tasks below mirror them.
+
+[tools]
+python = "3.12.2"
+node = "20"
+
+[env]
+# Auto-load the gitignored .env (secrets live there, never in this file).
+_.file = ".env"
+
+[tasks.dev]
+description = "Start the Next.js frontend (http://localhost:3000)"
+run = "make dev"
+
+[tasks.dev-api]
+description = "Start the FastAPI backend (http://localhost:8000)"
+run = "uv run uvicorn serverless.backend.index:app --reload --port 8000"
+
+[tasks.lint]
+description = "Lint Python (ruff + mypy) and TypeScript (eslint)"
+run = "make lint"
+
+[tasks.format]
+description = "Format Python with ruff and sort imports"
+run = "make format"
+
+[tasks.test]
+description = "Run the test suite with pytest"
+run = "make test"
