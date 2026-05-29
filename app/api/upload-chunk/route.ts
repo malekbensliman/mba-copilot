@@ -55,8 +55,10 @@ async function handlePart(request: NextRequest) {
   }
 
   const { put } = await import('@vercel/blob');
+  // Private store: parts are never publicly fetchable. The Python backend reads
+  // them with the BLOB_READ_WRITE_TOKEN, and they're deleted right after extract.
   const blob = await put(`chunk-part-${partNumber}-${Date.now()}`, chunk, {
-    access: 'public',
+    access: 'private',
     addRandomSuffix: true,
   });
 
