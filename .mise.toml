@@ -1,10 +1,14 @@
 # mise configuration for mba-copilot
 #
-# mise orchestrates the toolchain: it manages `uv` and `node`, auto-loads the
-# gitignored .env, and auto-creates/sources uv's virtualenv. Python itself is
-# provided by uv (driven by the .python-version file), so mise does not install
-# a separate python-build-standalone.
+# mise is the single entry point for local development: it manages `uv` and
+# `node`, auto-loads the gitignored .env, auto-creates/sources uv's virtualenv,
+# and defines the project tasks below. Run `mise tasks` to list them and
+# `mise run <task>` to run one. Python is provided by uv (driven by
+# .python-version), so mise installs no separate python-build-standalone.
 # Pattern: https://mise.jdx.dev/mise-cookbook/python.html
+#
+# Dependency management uses uv directly: `uv add <pkg>`, `uv add --dev <pkg>`,
+# `uv remove <pkg>`, `uv lock`, `uv sync`.
 
 [tools]
 uv = "latest"
@@ -18,22 +22,75 @@ python.uv_venv_auto = "create|source"
 # Auto-load the gitignored .env (secrets live there, never in this file).
 _.file = ".env"
 
+# --- Setup -------------------------------------------------------------------
+
+[tasks.setup]
+description = "Install Python (uv) and Node (npm) dependencies"
+run = ["uv sync", "npm install"]
+
+# --- Development -------------------------------------------------------------
+
 [tasks.dev]
 description = "Start the Next.js frontend (http://localhost:3000)"
-run = "make dev"
+run = "npm run dev"
 
 [tasks.dev-api]
 description = "Start the FastAPI backend (http://localhost:8000)"
 run = "uv run uvicorn serverless.backend.index:app --reload --port 8000"
 
-[tasks.lint]
-description = "Lint Python (ruff + mypy) and TypeScript (eslint)"
-run = "make lint"
+[tasks.dev-all]
+description = "Start frontend + backend together (Ctrl+C stops both)"
+run = "trap 'kill 0' EXIT; uv run uvicorn serverless.backend.index:app --reload --port 8000 & npm run dev & wait"
+
+[tasks.build]
+description = "Build the Next.js app for production"
+run = "npm run build"
+
+# --- Code quality ------------------------------------------------------------
 
 [tasks.format]
 description = "Format Python with ruff and sort imports"
-run = "make format"
+run = [
+  "uv run ruff format serverless/ tests/",
+  "uv run ruff check --select I --fix serverless/ tests/",
+]
+
+[tasks.lint]
+description = "Lint Python (ruff + ty) and TypeScript (eslint)"
+run = [
+  "uv run ruff check serverless/ tests/",
+  "uv run ty check serverless/",
+  "npm run lint",
+]
+
+[tasks.typecheck]
+description = "Type-check the backend with ty"
+run = "uv run ty check serverless/"
+
+[tasks.check]
+description = "Run all Python checks (format, lint, types) read-only"
+run = [
+  "uv run ruff format --check serverless/ tests/",
+  "uv run ruff check serverless/ tests/",
+  "uv run ty check serverless/",
+]
 
 [tasks.test]
-description = "Run the test suite with pytest"
-run = "make test"
+description = "Run the Python test suite (pytest)"
+run = "uv run pytest"
+
+# --- Build & deploy ----------------------------------------------------------
+
+[tasks.requirements]
+description = "Regenerate requirements.txt from pyproject.toml for Vercel"
+run = "uv pip compile pyproject.toml -o requirements.txt"
+
+# --- Cleanup -----------------------------------------------------------------
+
+[tasks.clean]
+description = "Remove build artifacts and caches"
+run = "rm -rf .next node_modules/.cache .ruff_cache .mypy_cache .pytest_cache; find . -type d -name __pycache__ -prune -exec rm -rf {} +; find . -type f -name '*.pyc' -delete"
+
+[tasks.nuke]
+description = "Remove the venv and node_modules, then run `mise run setup` to rebuild"
+run = "rm -rf .venv node_modules .next node_modules/.cache"

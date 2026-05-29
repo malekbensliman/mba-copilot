@@ -18,11 +18,11 @@ OpenAI + Pinecone keys. Built for a Columbia Business School GenAI course.
 
 ## Commands (local dev — for maintainers/instructors; students never touch a terminal)
 
-Tooling: **mise** (tool versions + `.env` loading) + **uv** (Python deps/venv); Node via mise.
+Tooling: **mise** (tool versions, `.env` loading, and task runner — `mise tasks` lists them) + **uv** (Python deps/venv); Node via mise.
 
-- `make setup` — install everything · `make dev-all` — both servers · `make dev` / `make dev-api`
-- `make lint` — ruff + ty + eslint · `make format` — ruff · `make test` — pytest
-- `make requirements` — regenerate `requirements.txt` from `pyproject.toml` **for Vercel's
+- `mise run setup` — install everything · `mise run dev-all` — both servers · `mise run dev` / `mise run dev-api`
+- `mise run lint` — ruff + ty + eslint · `mise run format` — ruff · `mise run test` — pytest
+- `mise run requirements` — regenerate `requirements.txt` from `pyproject.toml` **for Vercel's
   Python build**. Run after any dependency change, or the deploy ships stale deps.
 
 ## Conventions
