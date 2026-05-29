@@ -14,10 +14,12 @@ export const maxDuration = 300;
  *
  * Client flow:
  * 1. POST ?action=part      FormData(chunk, partNumber) → { url, partNumber }
- * 2. POST ?action=complete   { parts, filename }         → processing result
+ * 2. POST ?action=extract    { parts, filename }         → parsed chunks
  *
- * The complete step sends part URLs to the Python backend which downloads,
- * concatenates, and processes them directly — no intermediate combined blob.
+ * The extract step sends part URLs to the Python backend which downloads,
+ * concatenates, and parses them into chunks (no embedding) — no intermediate
+ * combined blob. The browser then embeds those chunks in batches via
+ * /api/backend/embed-batch, keeping each request under the serverless limit.
  */
 export async function POST(request: NextRequest) {
   const session = await auth();
@@ -31,8 +33,8 @@ export async function POST(request: NextRequest) {
     switch (action) {
       case 'part':
         return await handlePart(request);
-      case 'complete':
-        return await handleComplete(request);
+      case 'extract':
+        return await handleExtract(request);
       default:
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
     }
@@ -63,7 +65,7 @@ async function handlePart(request: NextRequest) {
   return NextResponse.json({ url: blob.url, partNumber });
 }
 
-async function handleComplete(request: NextRequest) {
+async function handleExtract(request: NextRequest) {
   const { parts, filename } = await request.json() as {
     parts: Array<{ url: string; partNumber: number }>;
     filename: string;
@@ -89,12 +91,12 @@ async function handleComplete(request: NextRequest) {
   }
 
   try {
-    // Send part URLs to Python backend for download + processing
+    // Send part URLs to Python backend to download + parse into chunks
     console.log(`[upload-chunk] Sending ${sortedUrls.length} part URLs to backend for ${filename}`);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 240000);
 
-    const response = await fetch(`${backendUrl}/backend/upload-from-urls`, {
+    const response = await fetch(`${backendUrl}/backend/extract-from-urls`, {
       method: 'POST',
       headers: backendHeaders,
       body: JSON.stringify({ urls: sortedUrls, filename }),
@@ -103,11 +105,11 @@ async function handleComplete(request: NextRequest) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Backend processing failed: ${response.status} - ${errorText}`);
+      throw new Error(`Backend extraction failed: ${response.status} - ${errorText}`);
     }
 
     const result = await response.json();
-    console.log(`[upload-chunk] Processing complete:`, result);
+    console.log(`[upload-chunk] Extracted ${result.total_chunks ?? '?'} chunks for ${filename}`);
     return NextResponse.json(result);
   } finally {
     // Clean up all part blobs (fire-and-forget)

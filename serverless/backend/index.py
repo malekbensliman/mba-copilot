@@ -753,8 +753,14 @@ def _make_file_obj(content: bytes, filename: str) -> _FileObj:
     return _FileObj(content, filename)
 
 
-async def _process_file(file_obj: Any, display_filename: str) -> dict[str, Any]:
-    """Shared file processing: extract chunks, generate embeddings, store in Pinecone."""
+async def _extract_and_dedupe(file_obj: Any, display_filename: str) -> dict[str, Any]:
+    """Parse a file into chunks and drop any prior document with the same name.
+
+    Phase 1 of batched ingestion. Does only the fast work (text extraction and
+    dedupe), so it stays well under the serverless time limit even for large
+    files. Returns the chunk texts for the browser to embed in batches via
+    ``/embed-batch``.
+    """
     if not config.OPENAI_API_KEY:
         raise HTTPException(
             status_code=500,
@@ -777,56 +783,52 @@ async def _process_file(file_obj: Any, display_filename: str) -> dict[str, Any]:
             print(f"Deleting existing document with filename: {display_filename}")
             delete_document(doc["id"])
 
-    chunk_texts = [chunk["text"] for chunk in structured_chunks]
-    embeddings = await generate_embeddings_batch(chunk_texts)
+    return {
+        "document_id": generate_document_id(),
+        "filename": display_filename,
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+        "total_chunks": len(structured_chunks),
+        "chunks": structured_chunks,
+    }
 
-    document_id = generate_document_id()
-    uploaded_at = datetime.now(timezone.utc).isoformat()
 
-    chunks: list[dict[str, Any]] = []
-    for i, (structured_chunk, embedding) in enumerate(
-        zip(structured_chunks, embeddings, strict=False)
-    ):
-        chunks.append(
+async def _embed_and_store(
+    document_id: str,
+    filename: str,
+    uploaded_at: str,
+    total_chunks: int,
+    structured_chunks: list[dict[str, Any]],
+) -> int:
+    """Embed a set of chunks and upsert them to Pinecone.
+
+    Phase 2 of batched ingestion. Called once per batch by the browser, so each
+    invocation embeds only a slice of a large document and stays under the
+    serverless time limit. ``chunk_index`` comes from each chunk (not the loop
+    position) so batches map to stable, globally-correct vector IDs.
+    """
+    embeddings = await generate_embeddings_batch([c["text"] for c in structured_chunks])
+
+    records: list[dict[str, Any]] = []
+    for structured_chunk, embedding in zip(structured_chunks, embeddings, strict=False):
+        index = structured_chunk["chunk_index"]
+        records.append(
             {
-                "id": f"{document_id}_chunk_{i}",
+                "id": f"{document_id}_chunk_{index}",
                 "embedding": embedding,
                 "metadata": {
                     "text": structured_chunk["text"],
                     "document_id": document_id,
-                    "filename": display_filename,
-                    "chunk_index": i,
-                    "total_chunks": len(structured_chunks),
+                    "filename": filename,
+                    "chunk_index": index,
+                    "total_chunks": total_chunks,
                     "uploaded_at": uploaded_at,
-                    "is_first_chunk": i == 0,
+                    "is_first_chunk": index == 0,
                 },
             }
         )
 
-    store_chunks(chunks)
-
-    return {
-        "success": True,
-        "document_id": document_id,
-        "filename": display_filename,
-        "chunks": len(structured_chunks),
-    }
-
-
-@app.post("/upload")
-async def upload(
-    file: Annotated[UploadFile, File()],
-    filename: Annotated[str | None, Form()] = None,
-) -> dict[str, Any]:
-    """Upload and process a document file."""
-    try:
-        display_filename = filename or file.filename or "unknown"
-        return await _process_file(file, display_filename)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Error processing document upload")
-        raise HTTPException(status_code=500, detail="Failed to process the document.") from e
+    store_chunks(records)
+    return len(records)
 
 
 @app.get("/documents")
@@ -849,40 +851,33 @@ async def remove_document(document_id: str) -> dict[str, bool]:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@app.post("/upload-from-url")
-async def upload_from_url(request: dict[str, Any]) -> dict[str, Any]:
-    """Download a file from a URL and process it."""
+@app.post("/extract")
+async def extract(
+    file: Annotated[UploadFile, File()],
+    filename: Annotated[str | None, Form()] = None,
+) -> dict[str, Any]:
+    """Phase 1 of batched upload: parse a file into chunks without embedding.
+
+    Returns the chunk texts; the browser posts them back in batches to
+    ``/embed-batch``. Keeps each request under the serverless time limit so
+    large documents no longer time out during indexing.
+    """
     try:
-        url = request.get("url")
-        filename = request.get("filename")
-
-        if not url or not filename:
-            raise HTTPException(status_code=400, detail="Missing url or filename")
-
-        import httpx
-
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            content = response.content
-
-        fake_file = _make_file_obj(content, filename)
-        return await _process_file(fake_file, filename)
-
+        display_filename = filename or file.filename or "unknown"
+        return await _extract_and_dedupe(file, display_filename)
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Error processing document upload")
-        raise HTTPException(status_code=500, detail="Failed to process the document.") from e
+        logger.exception("Error extracting document")
+        raise HTTPException(status_code=500, detail="Failed to extract the document.") from e
 
 
-@app.post("/upload-from-urls")
-async def upload_from_urls(request: dict[str, Any]) -> dict[str, Any]:
-    """Download file parts from multiple blob URLs, concatenate, and process.
+@app.post("/extract-from-urls")
+async def extract_from_urls(request: dict[str, Any]) -> dict[str, Any]:
+    """Phase 1 of batched upload for large files uploaded as blob parts.
 
-    Used by the chunked upload flow: each part was uploaded as an individual
-    small blob. This endpoint downloads them all in parallel, concatenates
-    in order, and processes the assembled file.
+    Downloads the parts, concatenates, parses into chunks (no embedding), and
+    returns them for the browser to embed in batches via ``/embed-batch``.
     """
     try:
         urls: list[str] = request.get("urls", [])
@@ -898,20 +893,52 @@ async def upload_from_urls(request: dict[str, Any]) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=300.0) as client:
             responses = await asyncio.gather(*[client.get(url) for url in urls])
 
-        # Concatenate parts in order (urls are already sorted by the caller)
         content = b"".join(r.content for r in responses)
         print(
-            f"[upload-from-urls] Downloaded {len(urls)} parts ({len(content) / 1024 / 1024:.2f} MB)"
+            f"[extract-from-urls] Downloaded {len(urls)} parts ({len(content) / 1024 / 1024:.2f} MB)"
         )
 
         fake_file = _make_file_obj(content, filename)
-        return await _process_file(fake_file, filename)
+        return await _extract_and_dedupe(fake_file, filename)
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Error processing document upload")
-        raise HTTPException(status_code=500, detail="Failed to process the document.") from e
+        logger.exception("Error extracting document")
+        raise HTTPException(status_code=500, detail="Failed to extract the document.") from e
+
+
+@app.post("/embed-batch")
+async def embed_batch(request: dict[str, Any]) -> dict[str, Any]:
+    """Phase 2 of batched upload: embed and store one batch of chunks.
+
+    The browser calls this repeatedly with slices of the chunk list returned by
+    ``/extract``. Each call embeds only its slice, so large documents are
+    indexed across many short requests instead of one that exceeds the limit.
+    """
+    try:
+        document_id = request.get("document_id")
+        filename = request.get("filename")
+        uploaded_at = request.get("uploaded_at")
+        total_chunks = request.get("total_chunks")
+        chunks = request.get("chunks")
+
+        if not (
+            document_id and filename and uploaded_at and isinstance(total_chunks, int) and chunks
+        ):
+            raise HTTPException(status_code=400, detail="Missing or invalid batch fields")
+
+        if not config.OPENAI_API_KEY or not config.PINECONE_API_KEY:
+            raise HTTPException(status_code=500, detail="API keys not configured.")
+
+        upserted = await _embed_and_store(document_id, filename, uploaded_at, total_chunks, chunks)
+        return {"success": True, "upserted": upserted}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error embedding batch")
+        raise HTTPException(status_code=500, detail="Failed to embed the batch.") from e
 
 
 @app.get("/health")

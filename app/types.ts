@@ -39,6 +39,20 @@ export interface UploadResponse {
   chunks: number;
 }
 
+export interface ExtractedChunk {
+  text: string;
+  chunk_index: number;
+}
+
+/** Phase 1 of batched ingestion: parsed chunks the browser embeds in batches. */
+export interface ExtractResponse {
+  document_id: string;
+  filename: string;
+  uploaded_at: string;
+  total_chunks: number;
+  chunks: ExtractedChunk[];
+}
+
 export interface DocumentsResponse {
   documents: Document[];
 }
