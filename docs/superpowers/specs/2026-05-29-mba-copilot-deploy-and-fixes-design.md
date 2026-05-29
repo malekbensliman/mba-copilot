@@ -48,7 +48,9 @@ Switch the Blob store from public to **private** (Vercel private storage). The P
 ### 5.4 Backend authentication
 **Today the backend is unauthenticated.** `proxy.ts`'s matcher excludes `/backend/*`, and `vercel.json` routes `/backend/(.*)` straight to the Python function — so anyone with the URL can call `/backend/chat`, `/backend/upload`, `/backend/documents` directly, bypassing the password.
 
-Fix: the Python backend verifies the NextAuth session JWT on every request, using the shared `AUTH_SECRET` (HS256). Same-origin browser calls already send the session cookie, so the backend reads and verifies it and returns 401 otherwise. This reuses the existing password auth with no new secrets. (Verify NextAuth v5's JWT/cookie format and claims during implementation.)
+Fix: route backend calls through an **auth-gated Next.js forwarding route** that runs `auth()` and forwards to the Python function with a shared internal token derived from `AUTH_SECRET` (e.g. `X-Internal-Auth: sha256(AUTH_SECRET)`). Python rejects any request missing/mismatching that header, so direct browser hits to `/backend/*` return 401. The frontend stops calling `/backend/*` directly and calls the gated route instead.
+
+Why not "verify the JWT in Python": Auth.js (NextAuth v5) **encrypts** the session as a JWE (key derived from `AUTH_SECRET` via HKDF), so decrypting it in Python means reimplementing Auth.js's crypto — fragile. The shared-secret approach reuses `AUTH_SECRET`, adds no new env var, and needs no JWE handling. (Implementation detail: pick the exact gated path and ensure every frontend backend-call and the server-side `upload-from-urls` step send the header.)
 
 ## 6. Workstreams
 
@@ -107,7 +109,7 @@ Fix: the Python backend verifies the NextAuth session JWT on every request, usin
 ## 8. Verifications needed during implementation
 
 - Confirm the Pinecone delete actually fails on the live serverless index (delete a doc in-app, check the console).
-- Confirm NextAuth v5 JWT/cookie format for backend verification (5.4).
+- Confirm all frontend backend-calls (and the server-side `upload-from-urls` step) go through the gated forwarding route with the shared header; no direct `/backend/*` from the browser (5.4).
 - Confirm Vercel private Blob beta is available on the account and supports signed reads (5.3).
 - (For the deferred agentic bonus) confirm the CBS endpoint supports OpenAI function/tool calling.
 
