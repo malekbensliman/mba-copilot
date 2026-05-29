@@ -548,11 +548,13 @@ def list_documents() -> list[dict[str, Any]]:
     """
     index = get_pinecone_index()
 
-    # Reduce top_k to avoid timeouts - 100 documents should be enough
-    # for most use cases and is much faster than 1000
+    # top_k bounds how many documents the sidebar can list. A zero vector makes
+    # the match order arbitrary, so anything above the document count returns
+    # them all; 1000 comfortably covers a student's whole course library while
+    # keeping the query fast.
     results = index.query(
         vector=[0.0] * config.EMBEDDING_DIMENSIONS,
-        top_k=100,
+        top_k=1000,
         include_metadata=True,
         filter={"is_first_chunk": {"$eq": True}},
     )
