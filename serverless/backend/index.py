@@ -5,6 +5,8 @@ A RAG-powered document Q&A system for MBA students.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import io
 import logging
 import os
@@ -20,13 +22,18 @@ from docx import Document
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pptx import Presentation
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from fastapi import Request
     from openai import OpenAI
     from openai.types.chat import ChatCompletionMessageParam
     from pinecone import Index
+    from starlette.responses import Response
 
 # =============================================================================
 # App
@@ -44,6 +51,36 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _internal_auth_token() -> str | None:
+    """Return the shared token the Next.js proxy must send, derived from AUTH_SECRET."""
+    secret = os.environ.get("AUTH_SECRET")
+    if not secret:
+        return None
+    return hashlib.sha256(secret.encode()).hexdigest()
+
+
+@app.middleware("http")
+async def require_internal_auth(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
+    """Reject requests that did not arrive via the authenticated Next.js proxy.
+
+    The proxy forwards an ``X-Internal-Auth`` header derived from ``AUTH_SECRET``;
+    direct hits to the public ``/backend/*`` routes lack it and receive a 401.
+    """
+    if request.url.path.rstrip("/").endswith("/health"):
+        return await call_next(request)
+
+    expected = _internal_auth_token()
+    provided = request.headers.get("x-internal-auth")
+    if not expected or not provided or not hmac.compare_digest(provided, expected):
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+
+    return await call_next(request)
+
 
 # =============================================================================
 # Configuration

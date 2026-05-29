@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/auth';
+import { backendBase, internalAuthToken } from '@/lib/backend';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -18,6 +20,11 @@ export const maxDuration = 300;
  * concatenates, and processes them directly — no intermediate combined blob.
  */
 export async function POST(request: NextRequest) {
+  const session = await auth();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const action = request.nextUrl.searchParams.get('action');
 
   try {
@@ -71,17 +78,11 @@ async function handleComplete(request: NextRequest) {
     .sort((a, b) => a.partNumber - b.partNumber)
     .map((p) => p.url);
 
-  // Build the backend URL
-  const host = request.headers.get('host');
-  const protocol = request.headers.get('x-forwarded-proto') || 'https';
-  const backendUrl = host
-    ? `${protocol}://${host}`
-    : process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : 'http://localhost:3000';
+  const backendUrl = backendBase(request);
 
   const backendHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
+    'X-Internal-Auth': internalAuthToken(),
   };
   if (process.env.VERCEL_AUTOMATION_BYPASS_SECRET) {
     backendHeaders['x-vercel-protection-bypass'] = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
