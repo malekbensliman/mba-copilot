@@ -890,8 +890,16 @@ async def extract_from_urls(request: dict[str, Any]) -> dict[str, Any]:
 
         import httpx
 
+        # Private Blob reads are authenticated with the store token, which Vercel
+        # injects as BLOB_READ_WRITE_TOKEN when the store is connected to the
+        # project. Without it, the parts return 401 and raise_for_status fails.
+        blob_token = os.environ.get("BLOB_READ_WRITE_TOKEN")
+        headers = {"Authorization": f"Bearer {blob_token}"} if blob_token else {}
+
         async with httpx.AsyncClient(timeout=300.0) as client:
-            responses = await asyncio.gather(*[client.get(url) for url in urls])
+            responses = await asyncio.gather(*[client.get(url, headers=headers) for url in urls])
+        for resp in responses:
+            resp.raise_for_status()
 
         content = b"".join(r.content for r in responses)
         print(
@@ -951,8 +959,9 @@ async def health() -> dict[str, str]:
 async def diagnostics() -> dict[str, Any]:
     """Report configuration health so the UI can guide students to fixes.
 
-    Checks that the required keys are present and that the Pinecone index exists
-    with the dimension this app expects. Auth-gated like every other endpoint.
+    Checks that the required keys are present, the Pinecone index exists with the
+    dimension this app expects, and Blob storage is connected. Auth-gated like
+    every other endpoint.
     """
     checks: list[dict[str, Any]] = []
 
@@ -998,6 +1007,16 @@ async def diagnostics() -> dict[str, Any]:
                 "Could not reach the index — check PINECONE_API_KEY and that "
                 "the index name matches PINECONE_INDEX.",
             )
+
+    blob_token = os.environ.get("BLOB_READ_WRITE_TOKEN")
+    add(
+        "Vercel Blob storage",
+        bool(blob_token),
+        "Connected."
+        if blob_token
+        else "BLOB_READ_WRITE_TOKEN is not set. Create a Private Blob store and "
+        "connect it — required to upload files larger than 4 MB.",
+    )
 
     return {"ok": all(c["ok"] for c in checks), "checks": checks}
 

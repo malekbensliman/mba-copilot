@@ -80,3 +80,51 @@ def test_embed_and_store_marks_only_first_chunk(monkeypatch) -> None:
     records = captured["records"]
     assert records[0]["metadata"]["is_first_chunk"] is True
     assert records[1]["metadata"]["is_first_chunk"] is False
+
+
+def test_extract_from_urls_authenticates_with_blob_token(monkeypatch) -> None:
+    """Private blob parts are fetched with the BLOB_READ_WRITE_TOKEN bearer header."""
+    monkeypatch.setenv("BLOB_READ_WRITE_TOKEN", "vercel_blob_rw_secret")
+    captured: dict[str, Any] = {}
+
+    class FakeResponse:
+        """Stand-in for a successful httpx response."""
+
+        content = b"part-bytes"
+
+        def raise_for_status(self) -> None:
+            """Succeed without raising, like a 2xx response."""
+
+    class FakeClient:
+        """Async-context stand-in for httpx.AsyncClient that records headers."""
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            """Accept and ignore the real client's constructor arguments."""
+
+        async def __aenter__(self) -> FakeClient:
+            """Enter the async context, returning self."""
+            return self
+
+        async def __aexit__(self, *args: Any) -> bool:
+            """Exit the async context without suppressing exceptions."""
+            return False
+
+        async def get(self, url: str, headers: dict[str, str] | None = None) -> FakeResponse:
+            """Record the request headers and return a fake successful response."""
+            captured["headers"] = headers
+            return FakeResponse()
+
+    async def fake_extract(file_obj: Any, filename: str) -> dict[str, Any]:
+        """Skip real parsing; return a minimal extract result."""
+        return {"document_id": "doc_1", "filename": filename, "total_chunks": 0, "chunks": []}
+
+    monkeypatch.setattr("httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr(backend, "_extract_and_dedupe", fake_extract)
+
+    asyncio.run(
+        backend.extract_from_urls(
+            {"urls": ["https://store.private.blob.vercel-storage.com/p1"], "filename": "f.pdf"}
+        )
+    )
+
+    assert captured["headers"]["Authorization"] == "Bearer vercel_blob_rw_secret"

@@ -23,6 +23,7 @@ def test_diagnostics_ok_when_index_dimension_matches(monkeypatch):
     """Keys present and an index with the expected dimension reports ok."""
     monkeypatch.setattr(backend.config, "OPENAI_API_KEY", "sk-test")
     monkeypatch.setattr(backend.config, "PINECONE_API_KEY", "pc-test")
+    monkeypatch.setenv("BLOB_READ_WRITE_TOKEN", "vercel_blob_rw_test")
     fake_pc = mock.MagicMock()
     fake_pc.describe_index.return_value.dimension = backend.config.EMBEDDING_DIMENSIONS
 
@@ -30,6 +31,22 @@ def test_diagnostics_ok_when_index_dimension_matches(monkeypatch):
         result = asyncio.run(backend.diagnostics())
 
     assert result["ok"] is True
+
+
+def test_diagnostics_flags_missing_blob_storage(monkeypatch):
+    """A missing Blob token is reported and fails the overall status."""
+    monkeypatch.setattr(backend.config, "OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr(backend.config, "PINECONE_API_KEY", "pc-test")
+    monkeypatch.delenv("BLOB_READ_WRITE_TOKEN", raising=False)
+    fake_pc = mock.MagicMock()
+    fake_pc.describe_index.return_value.dimension = backend.config.EMBEDDING_DIMENSIONS
+
+    with mock.patch("pinecone.Pinecone", return_value=fake_pc):
+        result = asyncio.run(backend.diagnostics())
+
+    assert result["ok"] is False
+    blob_check = next(c for c in result["checks"] if "blob" in c["name"].lower())
+    assert blob_check["ok"] is False
 
 
 def test_diagnostics_flags_wrong_dimension(monkeypatch):

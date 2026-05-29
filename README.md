@@ -86,16 +86,16 @@ If your instructor provided access to Columbia's OpenAI endpoint, set in your `.
 
 > If anything's misconfigured, the app shows a **setup banner** after you sign in, naming exactly what to fix (e.g. a wrong Pinecone dimension).
 
-### Step 6: Enable Vercel Blob Storage (for large files)
+### Step 6: Create a Private Vercel Blob store
 
-**Required** if you'll upload files larger than 4 MB (big PDFs or slide decks). Blob is temporary storage for large uploads; files are deleted right after processing (free tier: 500 MB, your cost ≈ $0).
+**Required.** Most course PDFs and slide decks are larger than 4 MB, and the app uploads those through Blob — temporary, **private** storage. Upload parts are deleted right after processing (free tier: 500 MB, your cost ≈ $0).
 
-1. In your Vercel project, open the **Storage** tab → **Create Database → Blob**, name it (e.g. `mba-copilot-files`), and click **Create**.
+1. In your Vercel project, open the **Storage** tab → **Create Database → Blob**. When prompted for access, choose **Private**, name it (e.g. `mba-copilot-files`), and create it.
 2. Click **Connect to Project** → select your project → **Connect**.
-3. Open **Settings → Deployment Protection** and disable **Vercel Authentication** (so classmates can reach the app without a Vercel login).
+3. Open **Settings → Deployment Protection** and disable **Vercel Authentication** (so classmates reach the app through your password, not a Vercel login).
 4. Open the **Deployments** tab → the latest deployment's **⋯** menu → **Redeploy**.
 
-Vercel adds the `BLOB_READ_WRITE_TOKEN` variable automatically. **Skip this** if you only upload small files (< 4 MB).
+Vercel adds the `BLOB_READ_WRITE_TOKEN` variable automatically. The store **must be Private** — the backend reads upload parts with that token, so your documents are never exposed at a public URL. (If the setup banner flags Blob after you sign in, the store isn't connected yet.)
 
 ### Step 7: Sign In
 
