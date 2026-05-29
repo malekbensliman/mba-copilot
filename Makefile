@@ -15,7 +15,7 @@
 #   make setup    # Install Python + Node deps, create venv
 #   make dev-all  # Start frontend + backend
 #   make format   # Format code with ruff
-#   make lint     # Run ruff + mypy + eslint
+#   make lint     # Run ruff + ty + eslint
 #   make nuke     # Remove venv + node_modules and start fresh
 #
 # ==============================================================================
@@ -166,8 +166,8 @@ format:
 lint:
 	@echo -e "${CYAN}*** Linting Python with ruff${RST}"
 	${UV_RUN} ruff check serverless/
-	@echo -e "${CYAN}*** Running mypy type checks${RST}"
-	${UV_RUN} mypy serverless/
+	@echo -e "${CYAN}*** Running ty type checks${RST}"
+	${UV_RUN} ty check serverless/
 	@echo -e "${CYAN}*** Linting TypeScript with ESLint${RST}"
 	npm run lint
 
@@ -175,9 +175,9 @@ lint-fix:
 	@echo -e "${CYAN}*** Fixing Python lint issues${RST}"
 	${UV_RUN} ruff check --fix serverless/
 
-mypy:
-	@echo -e "${CYAN}*** Running mypy type checks${RST}"
-	${UV_RUN} mypy serverless/
+typecheck:
+	@echo -e "${CYAN}*** Running ty type checks${RST}"
+	${UV_RUN} ty check serverless/
 
 check:
 	@echo -e "${CYAN}*** Checking formatting${RST}"
@@ -187,7 +187,7 @@ check:
 	@echo -e "${CYAN}*** Running linter${RST}"
 	${UV_RUN} ruff check serverless/
 	@echo -e "${CYAN}*** Running type checks${RST}"
-	${UV_RUN} mypy serverless/
+	${UV_RUN} ty check serverless/
 
 # ==============================================================================
 # Testing
@@ -239,7 +239,7 @@ nuke: clean
 
 .PHONY: setup install full-setup lock update add add-dev remove lockcheck \
         dev dev-api dev-all build \
-        format lint lint-fix mypy check \
+        format lint lint-fix typecheck check \
         test test-cov \
         run requirements \
         clean nuke help
@@ -265,9 +265,9 @@ help:
 	@echo ""
 	@echo -e "${CYAN}Code Quality:${RST}"
 	@echo "  make format       - Format Python code with ruff"
-	@echo "  make lint         - Lint Python (ruff + mypy) and TypeScript"
+	@echo "  make lint         - Lint Python (ruff + ty) and TypeScript"
 	@echo "  make lint-fix     - Auto-fix Python lint issues"
-	@echo "  make mypy         - Run type checks"
+	@echo "  make typecheck    - Run type checks"
 	@echo "  make check        - Run all checks (CI)"
 	@echo ""
 	@echo -e "${CYAN}Testing:${RST}"

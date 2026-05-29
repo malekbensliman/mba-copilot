@@ -478,7 +478,7 @@ make dev-all      # Both servers
 make dev          # Frontend only (Next.js on :3000)
 make dev-api      # Backend only (FastAPI on :8000)
 make format       # Format Python with ruff
-make lint         # Lint Python (ruff + mypy) and TypeScript (eslint)
+make lint         # Lint Python (ruff + ty) and TypeScript (eslint)
 make test         # Run the Python test suite (pytest)
 make requirements # Regenerate requirements.txt for Vercel after changing deps
 ```

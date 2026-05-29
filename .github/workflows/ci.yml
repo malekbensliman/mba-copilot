@@ -26,12 +26,8 @@ jobs:
       - name: Ruff lint
         run: uv run ruff check serverless/ tests/
 
-      - name: Type check (mypy)
-        run: uv run mypy serverless/
-
-      # ty is Astral's type checker (pre-release); run latest via uvx.
       - name: Type check (ty)
-        run: uvx ty check serverless/
+        run: uv run ty check serverless/
 
       - name: Tests
         run: uv run pytest
