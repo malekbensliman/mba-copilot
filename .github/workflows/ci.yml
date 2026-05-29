@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Ruff format check
+        run: uv run ruff format --check serverless/ tests/
+
+      - name: Ruff lint
+        run: uv run ruff check serverless/ tests/
+
+      - name: Type check (mypy)
+        run: uv run mypy serverless/
+
+      # ty is Astral's type checker (pre-release); run latest via uvx.
+      - name: Type check (ty)
+        run: uvx ty check serverless/
+
+      - name: Tests
+        run: uv run pytest
+
+  frontend:
+    name: Frontend (Next.js)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+        # Placeholder values: the app uses lazy clients, so the build never
+        # calls these services. Real values are set per-deployment in Vercel.
+        env:
+          AUTH_SECRET: ci-placeholder-secret
+          AUTH_PASSWORD: ci
+          OPENAI_API_KEY: sk-ci-placeholder
+          OPENAI_BASE_URL: https://api.openai.com/v1
+          PINECONE_API_KEY: ci-placeholder
+          PINECONE_INDEX: ci

@@ -5,11 +5,12 @@ A RAG-powered document Q&A system for MBA students.
 
 from __future__ import annotations
 
-import csv
+import hashlib
+import hmac
 import io
+import logging
 import os
 import random
-import re
 import string
 import time
 from datetime import datetime, timezone
@@ -21,18 +22,26 @@ from docx import Document
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pptx import Presentation
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from fastapi import Request
     from openai import OpenAI
     from openai.types.chat import ChatCompletionMessageParam
     from pinecone import Index
+    from starlette.responses import Response
 
 # =============================================================================
 # App
 # =============================================================================
 load_dotenv()
+
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="MBA Copilot API", root_path="/backend")
 
 app.add_middleware(
@@ -42,6 +51,36 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _internal_auth_token() -> str | None:
+    """Return the shared token the Next.js proxy must send, derived from AUTH_SECRET."""
+    secret = os.environ.get("AUTH_SECRET")
+    if not secret:
+        return None
+    return hashlib.sha256(secret.encode()).hexdigest()
+
+
+@app.middleware("http")
+async def require_internal_auth(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
+    """Reject requests that did not arrive via the authenticated Next.js proxy.
+
+    The proxy forwards an ``X-Internal-Auth`` header derived from ``AUTH_SECRET``;
+    direct hits to the public ``/backend/*`` routes lack it and receive a 401.
+    """
+    if request.url.path.rstrip("/").endswith("/health"):
+        return await call_next(request)
+
+    expected = _internal_auth_token()
+    provided = request.headers.get("x-internal-auth")
+    if not expected or not provided or not hmac.compare_digest(provided, expected):
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+
+    return await call_next(request)
+
 
 # =============================================================================
 # Configuration
@@ -245,7 +284,7 @@ def _extract_pptx_text(content: bytes) -> str:
 
         for shape in slide.shapes:
             # python-pptx is dynamic; stubs are conservative.
-            s = cast(Any, shape)
+            s = cast("Any", shape)
 
             if hasattr(s, "text_frame") and s.text_frame:
                 txt = (s.text_frame.text or "").strip()
@@ -271,64 +310,6 @@ def _extract_pptx_text(content: bytes) -> str:
         slides_out.append("\n".join(parts).strip())
 
     return "\n\n".join(s for s in slides_out if s).strip()
-
-
-def _extract_csv_structured(content: bytes) -> list[dict[str, Any]]:
-    """Extract CSV as row-based chunks with column headers.
-
-    Each row becomes a chunk formatted as: "ColA: valA | ColB: valB | ..."
-    """
-    text = content.decode("utf-8-sig", errors="replace")
-    reader = csv.DictReader(io.StringIO(text))
-
-    rows: list[dict[str, Any]] = []
-    for idx, row in enumerate(reader, start=1):
-        # Format: "ColA: valA | ColB: valB"
-        chunk_text = " | ".join(f"{k}: {v}" for k, v in row.items() if v and v.strip())
-        if chunk_text.strip():
-            rows.append({
-                "row_number": idx,
-                "text": chunk_text,
-            })
-
-    return rows
-
-
-def _extract_pdf_with_pages(content: bytes) -> list[dict[str, Any]]:
-    """Extract PDF with page-level metadata.
-
-    Returns list of dicts with: page_number, text
-    """
-    doc = fitz.open(stream=content, filetype="pdf")
-    try:
-        pages: list[dict[str, Any]] = []
-        y_tol = 3.0  # points
-
-        for page_num, page in enumerate(doc, start=1):
-            blocks: Any = page.get_text("blocks")
-            clean_blocks: list[Any] = []
-
-            for b in blocks:
-                if (
-                    isinstance(b, (tuple, list))
-                    and len(b) >= 5
-                    and isinstance(b[4], str)
-                    and b[4].strip()
-                ):
-                    clean_blocks.append(b)
-
-            clean_blocks.sort(key=lambda b: (round(float(b[1]) / y_tol), float(b[0])))
-
-            page_text = "\n".join(str(b[4]).rstrip() for b in clean_blocks).strip()
-            if page_text:
-                pages.append({
-                    "page_number": page_num,
-                    "text": page_text,
-                })
-
-        return pages
-    finally:
-        doc.close()
 
 
 def extract_structured_chunks(file: UploadFile) -> list[dict[str, Any]]:
@@ -525,9 +506,32 @@ def query_similar(
 
 
 def delete_document(document_id: str) -> None:
-    """Delete all chunks for a document from Pinecone."""
+    """Delete all chunks for a document from Pinecone.
+
+    Pinecone serverless indexes do not support delete-by-metadata-filter, so we
+    instead list every vector ID sharing this document's prefix and delete those
+    IDs directly. Chunk IDs are created as ``f"{document_id}_chunk_{i}"``, so they
+    all share the prefix ``f"{document_id}_"``.
+
+    Args:
+        document_id: The ID of the document whose chunks should be deleted.
+    """
     index = get_pinecone_index()
-    index.delete(filter={"document_id": {"$eq": document_id}})
+    prefix = f"{document_id}_"
+
+    # index.list() yields pages (lists) of matching vector IDs and transparently
+    # handles pagination tokens for us.
+    ids_to_delete: list[str] = []
+    for page in index.list(prefix=prefix):
+        ids_to_delete.extend(page)
+
+    if not ids_to_delete:
+        return
+
+    # Delete in batches; Pinecone limits delete-by-id to 1000 IDs per request.
+    batch_size = 1000
+    for i in range(0, len(ids_to_delete), batch_size):
+        index.delete(ids=ids_to_delete[i : i + batch_size])
 
 
 def list_documents() -> list[dict[str, Any]]:
@@ -725,7 +729,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        logger.exception("Error generating chat response")
+        raise HTTPException(status_code=500, detail="Failed to generate a response.") from e
 
 
 class _FileObj:
@@ -775,19 +780,21 @@ async def _process_file(file_obj: Any, display_filename: str) -> dict[str, Any]:
     for i, (structured_chunk, embedding) in enumerate(
         zip(structured_chunks, embeddings, strict=False)
     ):
-        chunks.append({
-            "id": f"{document_id}_chunk_{i}",
-            "embedding": embedding,
-            "metadata": {
-                "text": structured_chunk["text"],
-                "document_id": document_id,
-                "filename": display_filename,
-                "chunk_index": i,
-                "total_chunks": len(structured_chunks),
-                "uploaded_at": uploaded_at,
-                "is_first_chunk": i == 0,
-            },
-        })
+        chunks.append(
+            {
+                "id": f"{document_id}_chunk_{i}",
+                "embedding": embedding,
+                "metadata": {
+                    "text": structured_chunk["text"],
+                    "document_id": document_id,
+                    "filename": display_filename,
+                    "chunk_index": i,
+                    "total_chunks": len(structured_chunks),
+                    "uploaded_at": uploaded_at,
+                    "is_first_chunk": i == 0,
+                },
+            }
+        )
 
     store_chunks(chunks)
 
@@ -811,9 +818,8 @@ async def upload(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        error_detail = f"{str(e)}\n\nTraceback:\n{traceback.format_exc()}"
-        raise HTTPException(status_code=500, detail=error_detail) from e
+        logger.exception("Error processing document upload")
+        raise HTTPException(status_code=500, detail="Failed to process the document.") from e
 
 
 @app.get("/documents")
@@ -859,9 +865,8 @@ async def upload_from_url(request: dict[str, Any]) -> dict[str, Any]:
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        error_detail = f"{str(e)}\n\nTraceback:\n{traceback.format_exc()}"
-        raise HTTPException(status_code=500, detail=error_detail) from e
+        logger.exception("Error processing document upload")
+        raise HTTPException(status_code=500, detail="Failed to process the document.") from e
 
 
 @app.post("/upload-from-urls")
@@ -884,13 +889,13 @@ async def upload_from_urls(request: dict[str, Any]) -> dict[str, Any]:
         import httpx
 
         async with httpx.AsyncClient(timeout=300.0) as client:
-            responses = await asyncio.gather(
-                *[client.get(url) for url in urls]
-            )
+            responses = await asyncio.gather(*[client.get(url) for url in urls])
 
         # Concatenate parts in order (urls are already sorted by the caller)
         content = b"".join(r.content for r in responses)
-        print(f"[upload-from-urls] Downloaded {len(urls)} parts ({len(content) / 1024 / 1024:.2f} MB)")
+        print(
+            f"[upload-from-urls] Downloaded {len(urls)} parts ({len(content) / 1024 / 1024:.2f} MB)"
+        )
 
         fake_file = _make_file_obj(content, filename)
         return await _process_file(fake_file, filename)
@@ -898,9 +903,8 @@ async def upload_from_urls(request: dict[str, Any]) -> dict[str, Any]:
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        error_detail = f"{str(e)}\n\nTraceback:\n{traceback.format_exc()}"
-        raise HTTPException(status_code=500, detail=error_detail) from e
+        logger.exception("Error processing document upload")
+        raise HTTPException(status_code=500, detail="Failed to process the document.") from e
 
 
 @app.get("/health")

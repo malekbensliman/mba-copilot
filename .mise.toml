@@ -1,0 +1,39 @@
+# mise configuration for mba-copilot
+#
+# mise orchestrates the toolchain: it manages `uv` and `node`, auto-loads the
+# gitignored .env, and auto-creates/sources uv's virtualenv. Python itself is
+# provided by uv (driven by the .python-version file), so mise does not install
+# a separate python-build-standalone.
+# Pattern: https://mise.jdx.dev/mise-cookbook/python.html
+
+[tools]
+uv = "latest"
+node = "20"
+
+[settings]
+# Create the uv virtualenv if missing, then auto-source it on entering the dir.
+python.uv_venv_auto = "create|source"
+
+[env]
+# Auto-load the gitignored .env (secrets live there, never in this file).
+_.file = ".env"
+
+[tasks.dev]
+description = "Start the Next.js frontend (http://localhost:3000)"
+run = "make dev"
+
+[tasks.dev-api]
+description = "Start the FastAPI backend (http://localhost:8000)"
+run = "uv run uvicorn serverless.backend.index:app --reload --port 8000"
+
+[tasks.lint]
+description = "Lint Python (ruff + mypy) and TypeScript (eslint)"
+run = "make lint"
+
+[tasks.format]
+description = "Format Python with ruff and sort imports"
+run = "make format"
+
+[tasks.test]
+description = "Run the test suite with pytest"
+run = "make test"

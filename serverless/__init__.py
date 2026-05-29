@@ -1,0 +1,1 @@
+"""MBA Copilot serverless package."""

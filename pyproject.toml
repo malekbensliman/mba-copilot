@@ -22,6 +22,7 @@ dependencies = [
 dev = [
     "ruff>=0.5.3",
     "mypy>=1.8.0",
+    "pytest>=9.0.3",
 ]
 
 [tool.pyright]
@@ -90,3 +91,6 @@ disable_error_code = "top-level-await"
 check_untyped_defs = true # Warn if you use functions without type annotations
 disallow_untyped_defs = true # Force all functions to have type hints
 disallow_incomplete_defs = true # Force type annotations on all args (even with default values)
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

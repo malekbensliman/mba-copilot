@@ -14,7 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useDropzone } from 'react-dropzone';
+import { useDropzone, type DropEvent } from 'react-dropzone';
 import ReactMarkdown from 'react-markdown';
 import DocumentTree from './components/DocumentTree';
 import PasswordGate from './components/PasswordGate';
@@ -84,7 +84,7 @@ export default function Home() {
 
   const fetchDocuments = useCallback(async () => {
     try {
-      const res = await fetch('/backend/documents');
+      const res = await fetch('/api/backend/documents');
       if (res.ok) {
         const data: DocumentsResponse = await res.json();
         setDocuments(data.documents || []);
@@ -130,7 +130,7 @@ export default function Home() {
     setError(null);
 
     try {
-      const res = await fetch('/backend/chat', {
+      const res = await fetch('/api/backend/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -287,7 +287,7 @@ export default function Home() {
 
           formData.append('filename', finalFilename);
 
-          const res = await fetch('/backend/upload', {
+          const res = await fetch('/api/backend/upload', {
             method: 'POST',
             body: formData,
           });
@@ -330,17 +330,17 @@ export default function Home() {
     setTimeout(() => setUploadStatus(null), 3000);
   }, [fetchDocuments]);
 
-  const onDrop = useCallback(async (acceptedFiles: File[], _fileRejections: unknown, event: any) => {
+  const onDrop = useCallback(async (acceptedFiles: File[], _fileRejections: unknown, event: DropEvent) => {
     // Try to extract folder structure from drag event
-    const items = event?.dataTransfer?.items;
+    const items = (event as DragEvent).dataTransfer?.items;
     if (items) {
       const filesWithPaths: Array<File & { path?: string }> = [];
 
       // Helper to traverse directory entries recursively
-      const traverseFileTree = async (item: any, parentPath = ''): Promise<void> => {
+      const traverseFileTree = async (item: FileSystemEntry, parentPath = ''): Promise<void> => {
         return new Promise((resolve) => {
           if (item.isFile) {
-            item.file((file: File) => {
+            (item as FileSystemFileEntry).file((file: File) => {
               const fileWithPath = file as File & { path?: string };
               // Build the full path: parentPath already includes trailing slash if not empty
               fileWithPath.path = parentPath + file.name;
@@ -348,8 +348,8 @@ export default function Home() {
               resolve();
             });
           } else if (item.isDirectory) {
-            const dirReader = item.createReader();
-            dirReader.readEntries(async (entries: any[]) => {
+            const dirReader = (item as FileSystemDirectoryEntry).createReader();
+            dirReader.readEntries(async (entries: FileSystemEntry[]) => {
               // Add this directory to the path with trailing slash
               const newPath = parentPath + item.name + '/';
               for (const entry of entries) {
@@ -408,7 +408,7 @@ export default function Home() {
 
   const deleteDocument = async (id: string) => {
     try {
-      const res = await fetch(`/backend/documents/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/backend/documents/${id}`, { method: 'DELETE' });
       if (res.ok) {
         setSelectedDocIds((prev) => prev.filter((sid) => sid !== id));
         await fetchDocuments();
