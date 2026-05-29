@@ -299,7 +299,7 @@ git remote add origin https://github.com/YOUR_USERNAME/mba-copilot.git
 mise install
 
 # Create the uv venv and install Python + Node dependencies
-make setup
+mise run setup
 ```
 
 This will:
@@ -326,7 +326,7 @@ code .env
 
 ```bash
 # Start both frontend and backend
-make dev-all
+mise run dev-all
 ```
 
 You should see:
@@ -402,34 +402,34 @@ git push
 mise install
 
 # One-time setup (creates the uv venv, installs Python + Node deps)
-make setup
+mise run setup
 
 # Start both servers (frontend on :3000, backend on :8000)
-make dev-all
+mise run dev-all
 ```
 
 Or run them separately:
 
 ```bash
 # Terminal 1: Backend
-make dev-api
+mise run dev-api
 
 # Terminal 2: Frontend
-make dev
+mise run dev
 ```
 
-### Available Make Commands
+### Available Tasks (`mise tasks`)
 
 ```bash
-make help        # Show all commands
-make setup       # Install everything
-make dev-all     # Start both servers
-make dev         # Frontend only
-make dev-api     # Backend only
-make format      # Format Python code
-make lint        # Lint all code
-make clean       # Remove build artifacts
-make nuke        # Full reset (removes venv + node_modules)
+mise tasks       # List all available tasks
+mise run setup       # Install everything
+mise run dev-all     # Start both servers
+mise run dev         # Frontend only
+mise run dev-api     # Backend only
+mise run format      # Format Python code
+mise run lint        # Lint all code
+mise run clean       # Remove build artifacts
+mise run nuke        # Full reset (removes venv + node_modules)
 ```
 
 ### How Local Development Works
@@ -474,13 +474,13 @@ In development the Next.js `/api/backend/*` route verifies the session and forwa
 ### Useful Commands
 
 ```bash
-make dev-all      # Both servers
-make dev          # Frontend only (Next.js on :3000)
-make dev-api      # Backend only (FastAPI on :8000)
-make format       # Format Python with ruff
-make lint         # Lint Python (ruff + ty) and TypeScript (eslint)
-make test         # Run the Python test suite (pytest)
-make requirements # Regenerate requirements.txt for Vercel after changing deps
+mise run dev-all      # Both servers
+mise run dev          # Frontend only (Next.js on :3000)
+mise run dev-api      # Backend only (FastAPI on :8000)
+mise run format       # Format Python with ruff
+mise run lint         # Lint Python (ruff + ty) and TypeScript (eslint)
+mise run test         # Run the Python test suite (pytest)
+mise run requirements # Regenerate requirements.txt for Vercel after changing deps
 ```
 
 ---
@@ -579,15 +579,15 @@ mise install   # Python 3.12.2 + Node 20
 
 **"Cannot connect to backend"**
 
-- Make sure you ran `make dev-all` or `make dev-api`
+- Make sure you ran `mise run dev-all` or `mise run dev-api`
 - Check that port 8000 is not in use: `lsof -i :8000`
 - Verify `.env` exists with valid API keys
 
 **"Module not found" in Python**
 
 ```bash
-make nuke
-make setup
+mise run nuke
+mise run setup
 ```
 
 **"CORS error"**
