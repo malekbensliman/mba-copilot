@@ -96,6 +96,9 @@ class Config:
     EMBEDDING_MODEL = "text-embedding-3-large"
     CHAT_MODEL = "gpt-4o-mini"
     EMBEDDING_DIMENSIONS = 1024
+    # Max concurrent embedding requests (high concurrency trips the CBS endpoint's
+    # Cloudflare rate limiting on large documents).
+    EMBEDDING_CONCURRENCY = 8
 
     # Pinecone
     PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
@@ -443,14 +446,18 @@ async def generate_embeddings_batch(texts: list[str]) -> list[list[float]]:
         base_url=config.OPENAI_BASE_URL if config.OPENAI_BASE_URL else None,
     )
 
+    # Bound concurrency: a large document otherwise opens hundreds of simultaneous
+    # requests at once, which trips the CBS endpoint's Cloudflare rate limiting.
+    semaphore = asyncio.Semaphore(config.EMBEDDING_CONCURRENCY)
+
     async def get_single_embedding(text: str) -> list[float]:
-        """Get embedding for a single text."""
-        response = await async_client.embeddings.create(
-            model=config.EMBEDDING_MODEL, input=text, dimensions=config.EMBEDDING_DIMENSIONS
-        )
+        """Get the embedding for a single text, respecting the concurrency limit."""
+        async with semaphore:
+            response = await async_client.embeddings.create(
+                model=config.EMBEDDING_MODEL, input=text, dimensions=config.EMBEDDING_DIMENSIONS
+            )
         return response.data[0].embedding
 
-    # Run all requests in parallel
     embeddings = await asyncio.gather(*[get_single_embedding(text) for text in texts])
     return list(embeddings)
 
