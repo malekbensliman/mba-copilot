@@ -43,6 +43,17 @@ export interface DocumentsResponse {
   documents: Document[];
 }
 
+export interface DiagnosticsCheck {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface DiagnosticsResult {
+  ok: boolean;
+  checks: DiagnosticsCheck[];
+}
+
 // Settings that can be changed without re-processing documents
 export interface ChatSettings {
   chat_model: string;

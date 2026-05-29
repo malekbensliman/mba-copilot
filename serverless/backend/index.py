@@ -913,6 +913,61 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/diagnostics")
+async def diagnostics() -> dict[str, Any]:
+    """Report configuration health so the UI can guide students to fixes.
+
+    Checks that the required keys are present and that the Pinecone index exists
+    with the dimension this app expects. Auth-gated like every other endpoint.
+    """
+    checks: list[dict[str, Any]] = []
+
+    def add(name: str, ok: bool, detail: str) -> None:
+        checks.append({"name": name, "ok": ok, "detail": detail})
+
+    add(
+        "OpenAI API key",
+        bool(config.OPENAI_API_KEY),
+        "Set." if config.OPENAI_API_KEY else "OPENAI_API_KEY is not set.",
+    )
+    add(
+        "Pinecone API key",
+        bool(config.PINECONE_API_KEY),
+        "Set." if config.PINECONE_API_KEY else "PINECONE_API_KEY is not set.",
+    )
+
+    if config.PINECONE_API_KEY:
+        try:
+            from pinecone import Pinecone
+
+            pc = Pinecone(api_key=config.PINECONE_API_KEY)
+            dimension = int(pc.describe_index(config.PINECONE_INDEX).dimension)
+            if dimension == config.EMBEDDING_DIMENSIONS:
+                add(
+                    f"Pinecone index '{config.PINECONE_INDEX}'",
+                    True,
+                    f"Found (dimension {dimension}).",
+                )
+            else:
+                add(
+                    f"Pinecone index '{config.PINECONE_INDEX}'",
+                    False,
+                    f"Dimension is {dimension}, but this app needs "
+                    f"{config.EMBEDDING_DIMENSIONS}. Recreate the index with "
+                    f"{config.EMBEDDING_DIMENSIONS} dimensions.",
+                )
+        except Exception:
+            logger.exception("Pinecone diagnostics check failed")
+            add(
+                f"Pinecone index '{config.PINECONE_INDEX}'",
+                False,
+                "Could not reach the index — check PINECONE_API_KEY and that "
+                "the index name matches PINECONE_INDEX.",
+            )
+
+    return {"ok": all(c["ok"] for c in checks), "checks": checks}
+
+
 if __name__ == "__main__":
     import uvicorn
 
