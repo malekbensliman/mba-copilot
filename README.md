@@ -50,9 +50,8 @@ You have two options:
 If your instructor provided access to Columbia's OpenAI endpoint, set in your `.env`:
 
 - `OPENAI_API_KEY` = the key from your instructor
+  - Can be found at <a href="https://cbsai.business.columbia.edu" target="_blank">https://cbsai.business.columbia.edu</a>
 - `OPENAI_BASE_URL` = `https://cbsai.business.columbia.edu/api/v1`
-
-(If you downloaded the `.env` from Canvas, these may already be filled in — you can skip this step.)
 
 **Option B — your own OpenAI account**
 
@@ -92,7 +91,7 @@ If your instructor provided access to Columbia's OpenAI endpoint, set in your `.
 
 1. In your Vercel project, open the **Storage** tab → **Create Database → Blob**. When prompted for access, choose **Private**, name it (e.g. `mba-copilot-files`), and create it.
 2. Click **Connect to Project** → select your project → **Connect**.
-3. Open **Settings → Deployment Protection** and disable **Vercel Authentication** (so classmates reach the app through your password, not a Vercel login).
+3. Open **Settings → Deployment Protection** and disable **Vercel Authentication** (so you can share your app if you wish).
 4. Open the **Deployments** tab → the latest deployment's **⋯** menu → **Redeploy**.
 
 Vercel adds the `BLOB_READ_WRITE_TOKEN` variable automatically. The store **must be Private** — the backend reads upload parts with that token, so your documents are never exposed at a public URL. (If the setup banner flags Blob after you sign in, the store isn't connected yet.)
