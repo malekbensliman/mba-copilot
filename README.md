@@ -138,178 +138,30 @@ Once deployed, Vercel automatically redeploys your app whenever you push changes
 2. Settings → Git → Production Branch
 3. Uncheck "Automatically deploy" (not recommended)
 
-### Troubleshooting Deployment
-
-**If deployment fails:**
-
-1. Check the build logs in Vercel dashboard
-2. Verify all environment variables are set correctly
-3. Make sure your Pinecone index exists and has **1024 dimensions** (not 768 or 1536)
-4. Ensure your OpenAI API key is valid and has credits
-5. Verify you're using the `text-embedding-3-large` model (default in this project)
-
-**Common Pinecone issues:**
-
-- **"Dimension mismatch"** - Your index must have exactly 1024 dimensions
-- **"Index not found"** - Check that `PINECONE_INDEX` matches your index name exactly
-- **"Invalid API key"** - Verify you copied the full API key from Pinecone console
-
 ---
 
 ## For Instructors: Complete Setup
 
-This section walks you through setting up the template on GitHub so students can deploy it.
+The [Quick Start](#quick-start-for-students) above is written for **students** forking your published copy. If you want to **adopt this template for your own course** — rename, customize, distribute to students — here's the short version.
 
-### Prerequisites
+### Adopt this template
 
-- <a href="https://git-scm.com/downloads" target="_blank">Git</a> installed
-- <a href="https://mise.jdx.dev/" target="_blank">mise</a> installed (manages the Python + Node versions)
-- <a href="https://docs.astral.sh/uv/" target="_blank">uv</a> installed (Python dependencies)
-- Make (comes with macOS/Linux, or install via `choco install make` on Windows)
-- A <a href="https://github.com/" target="_blank">GitHub</a> account
-- A code editor (VS Code recommended)
+1. **Fork** this repository on GitHub to your account or course organization.
+2. **Clone** your fork locally to test and customize:
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/mba-copilot.git
+   cd mba-copilot
+   ```
+3. **Set up local development** — follow [Local Development](#local-development) below to install the pinned tools (mise + uv), create a `.env`, and run `mise run dev-all` to verify everything works locally.
+4. **Customize** as needed — see [Customization](#customization) for the AI model, system prompt, RAG settings, and colors.
+5. **Deploy your own copy** — follow the student [Quick Start](#quick-start-for-students) from Step 5 onward to put your customized version on Vercel.
+6. **Distribute** — share your fork's URL with students; they fork yours and follow the Quick Start.
 
-### Step 1: Create GitHub Repository
+### Optional: pre-fill `.env` on Canvas
 
-**Option A: Via GitHub Website (Easier)**
+If you provide a shared OpenAI endpoint (e.g. Columbia's `cbsai.business.columbia.edu`), you can pre-fill `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `PINECONE_INDEX` in a starter `.env` and post it to Canvas. Students still set their own `AUTH_SECRET`, `AUTH_PASSWORD`, and `PINECONE_API_KEY`.
 
-1. Go to <a href="https://github.com/new" target="_blank">github.com/new</a>
-2. Repository name: `mba-copilot`
-3. Description: "Personal AI copilot for MBA students"
-4. Choose **Public** (so students can fork it)
-5. **Don't** initialize with README (we'll push our own)
-6. Click **Create repository**
-7. Keep this page open - you'll need the URL
-
-**Option B: Via Terminal**
-
-```bash
-# Install GitHub CLI if you haven't
-brew install gh  # macOS
-# or visit <a href="https://cli.github.com/" target="_blank">cli.github.com</a>
-
-# Login to GitHub
-gh auth login
-
-# Create repo
-gh repo create mba-copilot --public --description "Personal AI copilot for MBA students"
-```
-
-### Step 2: Clone and Set Up Locally
-
-```bash
-# Navigate to where you want the project
-cd ~/Projects  # or wherever you keep code
-
-# Clone your empty repo
-git clone https://github.com/YOUR_USERNAME/mba-copilot.git
-cd mba-copilot
-
-# Copy the template files into this directory
-# (Unzip the template you downloaded and copy all files here)
-```
-
-Or if starting fresh:
-
-```bash
-# Initialize the project in an existing directory
-cd mba-copilot
-git init
-git remote add origin https://github.com/YOUR_USERNAME/mba-copilot.git
-```
-
-### Step 3: Install Dependencies
-
-```bash
-# Install the pinned Python (3.12.2) and Node (20) versions
-mise install
-
-# Create the uv venv and install Python + Node dependencies
-mise run setup
-```
-
-This will:
-
-- Use the Python 3.12.2 and Node 20 versions pinned in `.mise.toml`
-- Create a project-local `.venv` via uv
-- Install all Python dependencies (uv) and Node dependencies (npm)
-
-### Step 4: Set Up Environment Variables
-
-```bash
-# Copy the example env file (gitignored; loaded by mise and the backend)
-cp .env.example .env
-
-# Edit with your editor and fill in every value
-code .env
-```
-
-`.env.example` lists all required variables — `AUTH_SECRET`, `AUTH_PASSWORD`,
-`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `PINECONE_API_KEY`, and `PINECONE_INDEX`.
-`AUTH_SECRET` must be set for both the frontend session and the backend auth check.
-
-### Step 5: Test Locally
-
-```bash
-# Start both frontend and backend
-mise run dev-all
-```
-
-You should see:
-
-```
-*** Starting both frontend and backend
-Frontend: http://localhost:3000
-Backend:  http://localhost:8000
-```
-
-**Open <http://localhost:3000>** in your browser.
-
-**Test it:**
-
-1. Upload a PDF or text file
-2. Wait for "X chunks indexed" message
-3. Ask a question about the document
-
-(Press Ctrl+C to stop both servers)
-
-### Step 6: Push to GitHub
-
-Once everything works locally:
-
-```bash
-# Add all files
-git add .
-
-# Commit
-git commit -m "Initial commit: MBA Copilot template"
-
-# Push to GitHub
-git push -u origin main
-```
-
-### Step 7: Update the Deploy Button
-
-Edit `README.md` and replace `YOUR_USERNAME` with your actual GitHub username in the deploy button URL:
-
-```markdown
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FYOUR_ACTUAL_USERNAME%2Fmba-copilot&env=OPENAI_API_KEY,PINECONE_API_KEY&envDescription=API%20keys%20for%20OpenAI%20and%20Pinecone&envLink=https%3A%2F%2Fgithub.com%2FYOUR_ACTUAL_USERNAME%2Fmba-copilot%23-quick-start-for-students&project-name=mba-copilot&repository-name=mba-copilot)
-```
-
-Commit and push:
-
-```bash
-git add README.md
-git commit -m "Update deploy button URL"
-git push
-```
-
-### Step 8: Test the Deploy Flow
-
-1. Open your repo in a **private/incognito browser window**
-2. Click the "Deploy with Vercel" button
-3. Walk through the flow as a student would
-4. Verify the deployed app works
+> ⚠️ **Never pre-fill `AUTH_SECRET`** in a shared `.env`. A shared secret would let any classmate who has the Canvas file forge a session cookie on another student's deployment and bypass `AUTH_PASSWORD`. Each student must generate their own.
 
 ---
 
@@ -319,7 +171,6 @@ git push
 
 - <a href="https://mise.jdx.dev/" target="_blank">mise</a> — manages the pinned Python (3.12.2) and Node (20) versions and loads `.env`
 - <a href="https://docs.astral.sh/uv/" target="_blank">uv</a> — Python dependencies and virtualenv
-- Make (comes with macOS/Linux)
 
 ### Quick Start
 
@@ -344,18 +195,24 @@ mise run dev-api
 mise run dev
 ```
 
-### Available Tasks (`mise tasks`)
+### Tasks
+
+`mise tasks` lists everything. The common ones:
 
 ```bash
-mise tasks       # List all available tasks
-mise run setup       # Install everything
-mise run dev-all     # Start both servers
-mise run dev         # Frontend only
-mise run dev-api     # Backend only
-mise run format      # Format Python code
-mise run lint        # Lint all code
-mise run clean       # Remove build artifacts
-mise run nuke        # Full reset (removes venv + node_modules)
+mise run setup        # Install Python (uv) + Node (npm) dependencies
+mise run dev-all      # Start frontend (:3000) and backend (:8000) together
+mise run dev          # Frontend only (Next.js)
+mise run dev-api      # Backend only (FastAPI)
+mise run build        # Build the Next.js app for production
+mise run format       # Format Python with ruff
+mise run lint         # Lint Python (ruff + ty) and TypeScript (eslint)
+mise run typecheck    # Type-check the backend with ty
+mise run check        # Read-only: format-check + lint + types
+mise run test         # Run the Python test suite (pytest)
+mise run requirements # Regenerate requirements.txt for Vercel after dep changes
+mise run clean        # Remove build artifacts and caches
+mise run nuke         # Full reset (removes venv + node_modules)
 ```
 
 ### How Local Development Works
@@ -390,24 +247,12 @@ In development the Next.js `/api/backend/*` route verifies the session and forwa
 
 | Variable           | Required | Description                                                                                  |
 | ------------------ | -------- | -------------------------------------------------------------------------------------------- |
-| `AUTH_SECRET`      | Yes      | Random secret for NextAuth (generate with `openssl rand -base64 32`)                         |
+| `AUTH_SECRET`      | Yes      | Server-side key that signs login sessions (web: `generate-secret.vercel.app/32`, or `openssl rand -base64 32`) |
 | `AUTH_PASSWORD`    | Yes      | Password for accessing the app                                                               |
 | `OPENAI_API_KEY`   | Yes      | Your OpenAI API key (from OpenAI or instructor)                                              |
 | `OPENAI_BASE_URL`  | Yes      | OpenAI endpoint: `https://api.openai.com/v1` or `https://cbsai.business.columbia.edu/api/v1` |
 | `PINECONE_API_KEY` | Yes      | Your Pinecone API key                                                                        |
 | `PINECONE_INDEX`   | No       | Index name (default: `mba-copilot`)                                                          |
-
-### Useful Commands
-
-```bash
-mise run dev-all      # Both servers
-mise run dev          # Frontend only (Next.js on :3000)
-mise run dev-api      # Backend only (FastAPI on :8000)
-mise run format       # Format Python with ruff
-mise run lint         # Lint Python (ruff + ty) and TypeScript (eslint)
-mise run test         # Run the Python test suite (pytest)
-mise run requirements # Regenerate requirements.txt for Vercel after changing deps
-```
 
 ---
 
@@ -429,7 +274,6 @@ mba-copilot/
 ├── auth.ts, proxy.ts         # NextAuth (proxy.ts is Next 16's renamed middleware)
 ├── tests/                    # Python tests (pytest)
 ├── .mise.toml                # Tool versions (uv, Node) + .env loading
-├── Makefile                  # Development commands
 ├── pyproject.toml            # Python dependencies (uv)
 ├── requirements.txt          # Generated from pyproject.toml for Vercel's Python build
 ├── package.json              # Node dependencies
@@ -522,24 +366,26 @@ mise run setup
 
 ### Deployment Issues
 
-**"No relevant documents found"**
+**Setup banner appears with a failing check**
 
-- Upload documents first
-- Check Pinecone console to verify index exists
-- Ensure index has dimension 1024
+- The `/setup` diagnostics found a misconfigured key, index, or store. The banner names exactly what to fix — correct it in Vercel → Environment Variables (or Storage), then **redeploy** (env vars are baked into each deployment).
 
-**"Upload failed" or "403 Forbidden"**
+**Pinecone errors**
 
-- **For small files (< 4MB):** Check Vercel function logs for details
-- **For large files (> 4MB):** Make sure you've set up Vercel Blob storage (see Step 6)
-- Verify `BLOB_READ_WRITE_TOKEN` is set in your environment variables
-- Try a different file format (PDF, DOCX, PPTX, TXT, MD, CSV supported)
-- Check file isn't corrupted by opening it locally first
+- **Dimension mismatch** — the index must be exactly **1024** dimensions to match `text-embedding-3-large`. Recreate it with 1024.
+- **Index not found** — `PINECONE_INDEX` must match the index name exactly (case-sensitive).
+- **Invalid API key** — recopy the full key from the Pinecone console.
 
-**"API errors"**
+**Upload fails**
 
-- Verify API keys in Vercel environment settings
-- Check Vercel function logs for details
+- Small files (< 4 MB) post to `/api/backend/extract` directly. Large files use chunked uploads through Vercel Blob — confirm the Blob store is connected and **Private** (Step 6); the setup banner will flag it if not.
+- Supported formats: PDF, DOCX, PPTX, TXT, MD, CSV.
+- A flaky part can transiently fail; the browser retries each part up to 3 times. If a file still fails, try a smaller one — very large files (~80 MB+) may exceed Vercel's per-function limits even with chunked uploads.
+
+**API errors**
+
+- Verify all keys in Vercel → Environment Variables. After any change, **redeploy** so the new values take effect.
+- Check Vercel → Functions logs for the underlying error.
 
 ### Authentication Issues
 
@@ -580,9 +426,7 @@ mise run setup
 
 **Total estimated cost:** $1-5/semester (OpenAI usage only)
 
-**\*Vercel Blob Note:** Files are automatically deleted after processing, so you'll stay well within the free 500MB tier. Only the text embeddings are stored permanently in Pinecone.
-
-**No external auth services needed!** Authentication uses simple password check built into the app.
+**\*Vercel Blob:** Upload parts go to a **private** Blob store and are deleted right after the file is processed — well within the free 500 MB tier. Only the text embeddings persist (in Pinecone).
 
 ---
 
