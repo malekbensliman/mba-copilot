@@ -20,14 +20,10 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "ruff>=0.5.3",
+    "ruff>=0.17",
     "pytest>=9.0.3",
-    "ty>=0.0.40",
+    "ty>=0.0.88",
 ]
-
-[tool.pyright]
-# VSCode uses pyright out of the box; we disable it and use ty for type checking
-typeCheckingMode = "off"
 
 [build-system]
 requires = ["hatchling"]
