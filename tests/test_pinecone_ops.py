@@ -14,6 +14,11 @@ from serverless.backend import index as backend
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+# Aliases for annotations inside ``FakeIndex``: its ``list`` method shadows the
+# builtin in the class body, so ``list[str]`` there would subscript the method.
+IdPage = list[str]
+IdPages = list[IdPage]
+
 
 class FakeIndex:
     """Minimal stand-in for a Pinecone ``Index`` used by ``delete_document``.
@@ -23,13 +28,13 @@ class FakeIndex:
     can assert on the IDs that were requested for deletion.
     """
 
-    def __init__(self, pages: list[list[str]]) -> None:
+    def __init__(self, pages: IdPages) -> None:
         """Store the pages of IDs that ``list`` will yield."""
         self._pages = pages
         self.list_calls: list[dict[str, Any]] = []
         self.delete_calls: list[dict[str, Any]] = []
 
-    def list(self, **kwargs: Any) -> Iterator[list[str]]:
+    def list(self, **kwargs: Any) -> Iterator[IdPage]:
         """Yield each configured page of IDs, recording the call kwargs."""
         self.list_calls.append(kwargs)
         yield from self._pages

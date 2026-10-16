@@ -59,20 +59,20 @@ run = [
 description = "Lint Python (ruff + ty) and TypeScript (eslint)"
 run = [
   "uv run ruff check serverless/ tests/",
-  "uv run ty check serverless/",
+  "uv run ty check",
   "npm run lint",
 ]
 
 [tasks.typecheck]
-description = "Type-check the backend with ty"
-run = "uv run ty check serverless/"
+description = "Type-check the Python code (serverless + tests) with ty"
+run = "uv run ty check"
 
 [tasks.check]
 description = "Run all Python checks (format, lint, types) read-only"
 run = [
   "uv run ruff format --check serverless/ tests/",
   "uv run ruff check serverless/ tests/",
-  "uv run ty check serverless/",
+  "uv run ty check",
 ]
 
 [tasks.test]
